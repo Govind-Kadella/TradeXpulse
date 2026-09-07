@@ -47,6 +47,12 @@ export const TradingChart: React.FC = () => {
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
+  // Velocity tracking for inertial panning and touch pinch-to-zoom
+  const dragVelocityRef = useRef<number>(0);
+  const lastDragTimeRef = useRef<number>(0);
+  const lastDragClientXRef = useRef<number>(0);
+  const touchDistanceRef = useRef<number | null>(null);
+
   // Responsive canvas dimensions
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({
     width: 800,
@@ -948,6 +954,9 @@ export const TradingChart: React.FC = () => {
     setIsDragging(true);
     setDragStartX(e.clientX);
     setDragStartOffset(panOffset);
+    lastDragClientXRef.current = e.clientX;
+    lastDragTimeRef.current = Date.now();
+    dragVelocityRef.current = 0;
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -975,19 +984,108 @@ export const TradingChart: React.FC = () => {
       setHoveredIndex(null);
     }
 
-    // Panning: dragging right shifts back into history (increases panOffset);
-    // dragging left shifts towards current price (decreases panOffset)
+    // Panning according to TradingView standard:
+    // Drag LEFT (e.clientX < dragStartX) -> moves backward through history (increases panOffset)
+    // Drag RIGHT (e.clientX > dragStartX) -> moves forward toward live edge (decreases panOffset)
     if (isDragging) {
-      const deltaX = e.clientX - dragStartX;
-      // 1 candle shift per ~14px of horizontal drag
-      const candleShift = Math.round(deltaX / 14);
+      const deltaX = dragStartX - e.clientX;
+      const candleShift = Math.round(deltaX / Math.max(6, slotWidth));
       const newOffset = Math.max(0, Math.min(candles.length - visibleCount, dragStartOffset + candleShift));
       setPanOffset(newOffset);
+
+      // Track drag velocity for smooth flick deceleration
+      const now = Date.now();
+      const dt = Math.max(1, now - lastDragTimeRef.current);
+      dragVelocityRef.current = (lastDragClientXRef.current - e.clientX) / dt;
+      lastDragClientXRef.current = e.clientX;
+      lastDragTimeRef.current = now;
     }
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    // Smooth inertial momentum deceleration if dragged fast
+    if (Math.abs(dragVelocityRef.current) > 0.4) {
+      let v = dragVelocityRef.current * 7;
+      const momentumStep = () => {
+        v *= 0.88;
+        if (Math.abs(v) > 0.3) {
+          setPanOffset(prev => Math.max(0, Math.min(candles.length - visibleCount, Math.round(prev + v))));
+          requestAnimationFrame(momentumStep);
+        }
+      };
+      requestAnimationFrame(momentumStep);
+    }
+    dragVelocityRef.current = 0;
+  };
+
+  // Multi-touch gestures for mobile & tablet (1-finger drag, 2-finger pinch-to-zoom)
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      setIsDragging(true);
+      setDragStartX(t.clientX);
+      setDragStartOffset(panOffset);
+      lastDragClientXRef.current = t.clientX;
+      lastDragTimeRef.current = Date.now();
+      dragVelocityRef.current = 0;
+      touchDistanceRef.current = null;
+    } else if (e.touches.length === 2) {
+      setIsDragging(false);
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      touchDistanceRef.current = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      const x = t.clientX - rect.left;
+      const y = t.clientY - rect.top;
+      setMousePos({ x, y });
+
+      const paddingLeft = 14;
+      const paddingRight = 85;
+      const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
+      const forecastWidthRatio = isAtLiveEdge && overlayConfig.showForecastPath ? 0.26 : 0;
+      const historyPlotWidth = plotWidth * (1 - forecastWidthRatio);
+      const slotWidth = historyPlotWidth / visibleCandles.length;
+
+      const slot = Math.floor((x - paddingLeft) / slotWidth);
+      if (slot >= 0 && slot < visibleCandles.length) {
+        setHoveredCandle(visibleCandles[slot]);
+        setHoveredIndex(slot);
+      }
+
+      if (isDragging) {
+        const deltaX = dragStartX - t.clientX;
+        const candleShift = Math.round(deltaX / Math.max(6, slotWidth));
+        const newOffset = Math.max(0, Math.min(candles.length - visibleCount, dragStartOffset + candleShift));
+        setPanOffset(newOffset);
+      }
+    } else if (e.touches.length === 2 && touchDistanceRef.current !== null) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const diff = dist - touchDistanceRef.current;
+      if (Math.abs(diff) > 16) {
+        if (diff > 0) {
+          zoomIn();
+        } else {
+          zoomOut();
+        }
+        touchDistanceRef.current = dist;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    touchDistanceRef.current = null;
   };
 
   // Mouse wheel: horizontal pan on deltaX / shiftKey; zoom on vertical wheel
@@ -1008,7 +1106,7 @@ export const TradingChart: React.FC = () => {
     }
   };
 
-  // Active or hovered candle OHLC metrics to display on the HUD
+  // Active or hovered candle OHLC metrics & candle anatomy to display on the HUD
   const activeInspectionCandle = hoveredCandle || visibleCandles[visibleCandles.length - 1] || candles[candles.length - 1];
   const isInspectionBull = activeInspectionCandle ? activeInspectionCandle.close >= activeInspectionCandle.open : true;
   const candleChange = activeInspectionCandle ? Number((activeInspectionCandle.close - activeInspectionCandle.open).toFixed(marketOverview.digits)) : 0;
@@ -1016,10 +1114,25 @@ export const TradingChart: React.FC = () => {
     ? Number(((candleChange / activeInspectionCandle.open) * 100).toFixed(2))
     : 0;
 
+  // Candle anatomy calculations
+  const candleRange = activeInspectionCandle ? Number((activeInspectionCandle.high - activeInspectionCandle.low).toFixed(marketOverview.digits)) : 0;
+  const candleBody = activeInspectionCandle ? Number(Math.abs(activeInspectionCandle.close - activeInspectionCandle.open).toFixed(marketOverview.digits)) : 0;
+  const upperWick = activeInspectionCandle ? Number((activeInspectionCandle.high - Math.max(activeInspectionCandle.open, activeInspectionCandle.close)).toFixed(marketOverview.digits)) : 0;
+  const lowerWick = activeInspectionCandle ? Number((Math.min(activeInspectionCandle.open, activeInspectionCandle.close) - activeInspectionCandle.low).toFixed(marketOverview.digits)) : 0;
+
+  // Detect candlestick pattern
+  const detectedPattern = useMemo(() => {
+    if (!activeInspectionCandle || candleRange === 0) return null;
+    if (candleBody / candleRange < 0.1) return 'Doji';
+    if (lowerWick >= candleBody * 1.8 && upperWick < candleBody * 0.5) return isInspectionBull ? 'Hammer' : 'Bullish Pin Bar';
+    if (upperWick >= candleBody * 1.8 && lowerWick < candleBody * 0.5) return isInspectionBull ? 'Inverted Hammer' : 'Shooting Star';
+    return null;
+  }, [activeInspectionCandle, candleRange, candleBody, upperWick, lowerWick, isInspectionBull]);
+
   return (
     <div 
       ref={containerRef} 
-      className="relative flex-1 w-full h-full min-h-[460px] bg-[#0A0E17] border-r border-[#1F2937] overflow-hidden flex flex-col font-sans select-none"
+      className="relative flex-1 w-full h-full min-h-[460px] bg-[#0A0E17] border-r border-[#1F2937] overflow-hidden flex flex-col font-sans select-none touch-none"
       id="main-trading-chart-container"
     >
       {/* 1. Top Chart Header & Live OHLC Inspection HUD Bar */}
@@ -1058,6 +1171,21 @@ export const TradingChart: React.FC = () => {
           </div>
         )}
 
+        {/* Extended Candle Anatomy & Technical Pattern Badge (When Hovering / Inspecting) */}
+        {activeInspectionCandle && (
+          <div className="hidden xl:flex items-center gap-2 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-2.5 py-1.5 rounded shadow-lg text-[10px] font-mono">
+            <span className="text-slate-400">Range: <strong className="text-slate-200">{candleRange}</strong></span>
+            <span className="text-slate-400">Body: <strong className="text-slate-200">{candleBody}</strong></span>
+            <span className="text-slate-400">UW: <strong className="text-slate-200">{upperWick}</strong></span>
+            <span className="text-slate-400">LW: <strong className="text-slate-200">{lowerWick}</strong></span>
+            {detectedPattern && (
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
+                {detectedPattern}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Historical View vs Live State Indicator */}
         {isHistoricalView ? (
           <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)] animate-pulse">
@@ -1071,6 +1199,7 @@ export const TradingChart: React.FC = () => {
           <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-emerald-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
             <span className="font-bold">LIVE MARKET</span>
+            <span className="text-[9px] text-emerald-400/70 font-semibold">(Follow Active)</span>
           </div>
         )}
       </div>
@@ -1135,6 +1264,10 @@ export const TradingChart: React.FC = () => {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         onMouseLeave={() => {
           setIsDragging(false);
           setMousePos(null);
@@ -1148,7 +1281,7 @@ export const TradingChart: React.FC = () => {
       {/* 5. Watermark Note */}
       <div className="absolute bottom-3 right-24 z-20 pointer-events-none flex flex-col items-end gap-0.5 opacity-50">
         <div className="text-[9px] text-slate-500 font-mono">
-          TradeXpulse V1 • Demo Market Data • Drag to scroll history
+          TradeXpulse • Twelve Data Real-Time Stream • Drag to pan • Scroll to zoom
         </div>
       </div>
     </div>

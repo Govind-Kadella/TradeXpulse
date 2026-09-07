@@ -279,11 +279,62 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     return AnalysisEngine.generatePrediction('XAUUSD', 2357.89, 'BULLISH', candles);
   });
 
+  // Track state to only recalculate prediction on meaningful events (candle close, symbol/tf/bias switch, or setup invalidation)
+  const lastAnalyzedRef = useRef<{
+    symbol: MarketSymbol;
+    timeframe: Timeframe;
+    bias: BiasType;
+    candleTime: number;
+    candleCount: number;
+  }>({
+    symbol: activeSymbol,
+    timeframe: activeTimeframe,
+    bias: activeBias,
+    candleTime: 0,
+    candleCount: 0
+  });
+
   // Keep shared prediction state updated with active symbol, price, bias, and candle structure
   useEffect(() => {
-    const updated = AnalysisEngine.generatePrediction(activeSymbol, marketOverview.currentPrice, activeBias, candles);
-    setPrediction(updated);
-  }, [activeSymbol, marketOverview.currentPrice, activeBias]);
+    const lastCandle = candles[candles.length - 1];
+    const prevCandleTime = lastAnalyzedRef.current.candleTime;
+    const isSymbolChanged = lastAnalyzedRef.current.symbol !== activeSymbol;
+    const isTfChanged = lastAnalyzedRef.current.timeframe !== activeTimeframe;
+    const isBiasChanged = lastAnalyzedRef.current.bias !== activeBias;
+    const isNewCandleFormed = lastCandle && lastCandle.time !== prevCandleTime;
+    const isCountChanged = Math.abs(candles.length - lastAnalyzedRef.current.candleCount) > 2;
+
+    // Check invalidation: real market price broke structural invalidation / stop loss
+    const currentPrice = marketOverview.currentPrice;
+    let isInvalidationTriggered = false;
+    if (prediction && currentPrice > 0) {
+      if (prediction.direction === 'BULLISH' && currentPrice < prediction.stopLoss) {
+        isInvalidationTriggered = true;
+      } else if (prediction.direction === 'BEARISH' && currentPrice > prediction.stopLoss) {
+        isInvalidationTriggered = true;
+      }
+    }
+
+    if (
+      isSymbolChanged ||
+      isTfChanged ||
+      isBiasChanged ||
+      isNewCandleFormed ||
+      isCountChanged ||
+      isInvalidationTriggered
+    ) {
+      lastAnalyzedRef.current = {
+        symbol: activeSymbol,
+        timeframe: activeTimeframe,
+        bias: activeBias,
+        candleTime: lastCandle ? lastCandle.time : 0,
+        candleCount: candles.length
+      };
+
+      const updated = AnalysisEngine.generatePrediction(activeSymbol, currentPrice, activeBias, candles);
+      setPrediction(updated);
+    }
+  }, [activeSymbol, activeTimeframe, activeBias, candles, marketOverview.currentPrice, prediction]);
 
   // Multi-timeframe trend breakdown
   const timeframeTrends = useMemo(() => {

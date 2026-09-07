@@ -11,14 +11,19 @@ import {
 import { MarketSymbol, Timeframe, PriceTick } from './src/types';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ override: true });
 
 const PORT = 3000;
 const app = express();
 app.use(express.json());
 
 // Initialize Market Data Coordinator (Decouples LIVE and DEMO providers)
-const coordinator = new MarketDataCoordinator(process.env.TWELVE_DATA_API_KEY);
+const rawKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
+const effectiveKey = (rawKey && rawKey !== '1b6bb56fc7cd49719edeee87fe4c641d' && rawKey.length > 5)
+  ? rawKey
+  : '075b8fd30d7e4c339c3bb817ea1c99c4';
+
+const coordinator = new MarketDataCoordinator(effectiveKey);
 coordinator.start();
 const provider = coordinator.getProvider();
 
@@ -154,6 +159,38 @@ app.get('/api/market/history', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// 2b. Current Quote
+app.get('/api/market/quote', (req, res) => {
+  const symbol = (req.query.symbol as MarketSymbol) || 'XAUUSD';
+  try {
+    const price = provider.candleBuilder.getLatestPrice(symbol);
+    const meta = SYMBOL_METADATA[symbol] || { providerSymbol: symbol };
+    res.json({
+      symbol,
+      providerSymbol: meta.providerSymbol,
+      price,
+      timestamp: Date.now()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2c. Current Quotes for all supported symbols
+app.get('/api/market/quotes', (req, res) => {
+  const symbols: MarketSymbol[] = ['XAUUSD', 'EURUSD', 'GBPUSD', 'EURJPY'];
+  const results: any = {};
+  symbols.forEach(sym => {
+    results[sym] = {
+      symbol: sym,
+      providerSymbol: SYMBOL_METADATA[sym].providerSymbol,
+      price: provider.candleBuilder.getLatestPrice(sym),
+      timestamp: Date.now()
+    };
+  });
+  res.json(results);
 });
 
 // 3. Multi-Timeframe Snapshot
