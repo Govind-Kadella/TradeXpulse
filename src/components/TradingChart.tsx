@@ -984,7 +984,7 @@ export const TradingChart: React.FC = () => {
       setHoveredIndex(null);
     }
 
-    // Panning according to TradingView standard:
+    // Standard chart panning:
     // Drag LEFT (e.clientX < dragStartX) -> moves backward through history (increases panOffset)
     // Drag RIGHT (e.clientX > dragStartX) -> moves forward toward live edge (decreases panOffset)
     if (isDragging) {
