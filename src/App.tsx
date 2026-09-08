@@ -7,6 +7,7 @@ import { RightAiPanel } from './components/RightAiPanel';
 import { BottomMetrics } from './components/BottomMetrics';
 import { MarketMapView } from './components/MarketMapView';
 import { SettingsView } from './components/SettingsView';
+import { ExecutionView } from './components/ExecutionView';
 
 const MainLayout: React.FC = () => {
   const { activeView } = usePredictionState();
@@ -44,6 +45,8 @@ const MainLayout: React.FC = () => {
         )}
 
         {activeView === 'marketMap' && <MarketMapView />}
+
+        {activeView === 'execution' && <ExecutionView />}
 
         {activeView === 'settings' && <SettingsView />}
       </div>

@@ -18,12 +18,9 @@ const app = express();
 app.use(express.json());
 
 // Initialize Market Data Coordinator (Decouples LIVE and DEMO providers)
-const rawKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
-const effectiveKey = (rawKey && rawKey !== '1b6bb56fc7cd49719edeee87fe4c641d' && rawKey.length > 5)
-  ? rawKey
-  : '075b8fd30d7e4c339c3bb817ea1c99c4';
+const apiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
 
-const coordinator = new MarketDataCoordinator(effectiveKey);
+const coordinator = new MarketDataCoordinator(apiKey);
 coordinator.start();
 const provider = coordinator.getProvider();
 

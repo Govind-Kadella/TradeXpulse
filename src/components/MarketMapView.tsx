@@ -6,7 +6,9 @@ import {
   TrendingDown, 
   MinusCircle, 
   Sparkles,
-  Layers
+  Layers,
+  Activity,
+  ArrowRight
 } from 'lucide-react';
 
 export const MarketMapView: React.FC = () => {
@@ -18,7 +20,9 @@ export const MarketMapView: React.FC = () => {
     candles,
     marketOverview,
     prediction,
-    triggerAiAnalysis
+    triggerAiAnalysis,
+    marketMapItems,
+    setView
   } = usePredictionState();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -186,7 +190,137 @@ export const MarketMapView: React.FC = () => {
 
       {/* Main Map Content Area */}
       <div className="p-6 space-y-6 max-w-7xl mx-auto w-full">
-        {/* Status Highlights Banner */}
+        {/* Authoritative 4-Market Cross-Asset Intelligence Grid */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-400" />
+              <h2 className="text-sm font-bold text-white tracking-wide uppercase">
+                4-Market Cross-Asset Intelligence Overview
+              </h2>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              Canonical analysis engine across all 4 instruments • Click any card to inspect on Dashboard
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {marketMapItems.map(item => {
+              const isSelected = item.symbol === activeSymbol;
+              const isBull = item.direction === 'BULLISH';
+              const isBear = item.direction === 'BEARISH';
+
+              return (
+                <div
+                  key={item.symbol}
+                  id={`market-map-card-${item.symbol}`}
+                  onClick={() => setSymbol(item.symbol)}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                    isSelected
+                      ? 'bg-[#131B2D] border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.2)]'
+                      : 'bg-[#0E1421] border-[#1F2937] hover:border-slate-600 hover:bg-[#111827]'
+                  }`}
+                >
+                  {/* Symbol, Name & Live Price */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-black text-base text-white">
+                          {item.symbol}
+                        </span>
+                        {isSelected && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-400 line-clamp-1">
+                        {item.name}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col items-end">
+                      <span className="font-mono font-bold text-sm text-white">
+                        {item.currentPrice.toFixed(item.digits)}
+                      </span>
+                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded mt-0.5 ${
+                        item.signalStatus === 'ACTIVE'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}>
+                        {item.signalStatus}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Direction & Confidence */}
+                  <div className="bg-[#0A0E17] p-2.5 rounded-lg border border-[#1F2937]/80 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      {isBull ? (
+                        <TrendingUp className="w-4 h-4 text-emerald-400" />
+                      ) : isBear ? (
+                        <TrendingDown className="w-4 h-4 text-red-400" />
+                      ) : (
+                        <MinusCircle className="w-4 h-4 text-amber-400" />
+                      )}
+                      <span className={`font-mono text-xs font-bold ${
+                        isBull ? 'text-emerald-400' : isBear ? 'text-red-400' : 'text-amber-400'
+                      }`}>
+                        {item.direction}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-mono text-slate-400">Confidence:</span>
+                      <span className="text-xs font-mono font-bold text-white">{item.confidence}%</span>
+                    </div>
+                  </div>
+
+                  {/* Trend, Structure, Market Condition */}
+                  <div className="space-y-1 text-[11px] font-mono">
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="text-slate-500">Trend:</span>
+                      <span className="font-semibold text-right truncate max-w-[160px]">{item.trend}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="text-slate-500">Structure:</span>
+                      <span className="font-semibold text-right truncate max-w-[160px]">{item.structure}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span className="text-slate-500">Condition:</span>
+                      <span className="font-semibold text-blue-400 text-right">{item.classification.replace('_', ' ')}</span>
+                    </div>
+                  </div>
+
+                  {/* Setup & Target Move */}
+                  <div className="p-2 rounded bg-[#0A0E17] border border-[#1F2937]/80 text-[11px] font-mono space-y-1">
+                    <div className="text-slate-400 truncate">
+                      <strong className="text-slate-300">Setup: </strong>{item.m5Setup}
+                    </div>
+                    <div className="text-slate-400 truncate">
+                      <strong className="text-slate-300">Move: </strong>{item.expectedMovement}
+                    </div>
+                  </div>
+
+                  {/* Action Button: Open Terminal */}
+                  <button
+                    id={`open-terminal-btn-${item.symbol}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSymbol(item.symbol);
+                      setView('dashboard');
+                    }}
+                    className="w-full mt-1 py-1.5 px-2.5 rounded-lg bg-[#1D283D] hover:bg-blue-600 text-white font-mono text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Analyze on Dashboard</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected Market Status Highlights Banner */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-[#0E1421] border border-[#1F2937] rounded-lg p-3">
             <span className="text-[10px] font-mono uppercase text-slate-400">Current Market</span>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { usePredictionState } from '../context/PredictionStateContext';
 import { MarketSymbol, ActiveView } from '../types';
-import { Settings, Compass, LayoutDashboard, Sliders } from 'lucide-react';
+import { Settings, Compass, LayoutDashboard, Sliders, ShieldCheck } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { activeSymbol, setSymbol, activeView, setView, connectionStatus, marketDataStatus } = usePredictionState();
@@ -93,6 +93,18 @@ export const Header: React.FC = () => {
           >
             <Compass className="w-3.5 h-3.5" />
             Market Map
+          </button>
+          <button
+            id="nav-execution-tab"
+            onClick={() => setView('execution')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+              activeView === 'execution'
+                ? 'bg-[#1D283D] border border-blue-500/50 text-white shadow-[0_0_10px_rgba(59,130,246,0.2)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            Execution
           </button>
           <button
             id="nav-settings-tab"

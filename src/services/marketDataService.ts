@@ -112,7 +112,7 @@ export function getTwelveDataApiKey(): string {
     return '';
   }
   // Server-side environment
-  const key = process.env.TWELVE_DATA_API_KEY || '075b8fd30d7e4c339c3bb817ea1c99c4';
+  const key = process.env.TWELVE_DATA_API_KEY || '';
   return (key || '').trim();
 }
 

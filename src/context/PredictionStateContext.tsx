@@ -13,11 +13,21 @@ import {
   ChartOverlayConfig,
   HistoricalStructureInfo,
   ConnectionStatus,
-  PriceTick
+  PriceTick,
+  MarketMapItem,
+  AccountInfo,
+  Position,
+  Order,
+  OrderRequest,
+  OrderResult,
+  RiskConfig,
+  RiskEvaluationResult
 } from '../types';
 import { MarketDataService, MARKET_META } from '../services/marketDataService';
 import { AnalysisEngine } from '../services/analysisEngine';
 import { RealtimeMarketClient } from '../services/realtimeMarketClient';
+import { TwelveDataMarketService, SymbolMarketState } from '../services/TwelveDataMarketService';
+import { PaperExecutionAdapter, RiskEngine } from '../services/executionProvider';
 
 interface PredictionStateContextType {
   // Navigation & Selections
@@ -45,6 +55,7 @@ interface PredictionStateContextType {
   predictionSummary: AiPredictionSummary;
   marketDataStatus: MarketDataStatusInfo;
   historicalAnalysis: HistoricalStructureInfo;
+  marketMapItems: MarketMapItem[];
 
   // Real-time metadata
   connectionStatus: ConnectionStatus;
@@ -66,6 +77,20 @@ interface PredictionStateContextType {
   overlayConfig: ChartOverlayConfig;
   setOverlayConfig: React.Dispatch<React.SetStateAction<ChartOverlayConfig>>;
   toggleOverlay: (key: keyof ChartOverlayConfig) => void;
+
+  // Execution & Risk Management
+  account: AccountInfo;
+  positions: Position[];
+  orders: Order[];
+  riskConfig: RiskConfig;
+  placeOrder: (req: OrderRequest) => Promise<OrderResult>;
+  cancelOrder: (orderId: string) => Promise<boolean>;
+  closePosition: (positionId: string) => Promise<boolean>;
+  modifyOrder: (orderId: string, updates: Partial<OrderRequest>) => Promise<boolean>;
+  evaluateRisk: (req: OrderRequest) => RiskEvaluationResult;
+  stagedOrder: OrderRequest | null;
+  setStagedOrder: React.Dispatch<React.SetStateAction<OrderRequest | null>>;
+  stageTradeFromPrediction: () => void;
 }
 
 const defaultOverlayConfig: ChartOverlayConfig = {
@@ -77,6 +102,9 @@ const defaultOverlayConfig: ChartOverlayConfig = {
   showEMAs: true,
   showCrosshair: true,
   showHistoricalLevels: true,
+  showMarketStructure: true,
+  showFVG: true,
+  showOrderBlocks: true,
 };
 
 const PredictionStateContext = createContext<PredictionStateContextType | null>(null);
@@ -101,6 +129,27 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const [candles, setCandles] = useState<Candle[]>(() => {
     return MarketDataService.getHistoricalCandles('XAUUSD', 'M5', 250);
   });
+
+  // Paper Execution and Risk Engines
+  const executionAdapterRef = useRef<PaperExecutionAdapter>(new PaperExecutionAdapter(50000));
+  const riskEngineRef = useRef<RiskEngine>(new RiskEngine());
+
+  const [account, setAccount] = useState<AccountInfo>(() => executionAdapterRef.current.getAccount());
+  const [positions, setPositions] = useState<Position[]>(() => executionAdapterRef.current.getPositions());
+  const [orders, setOrders] = useState<Order[]>(() => executionAdapterRef.current.getOrders());
+  const [riskConfig, setRiskConfig] = useState<RiskConfig>(() => riskEngineRef.current.getConfig());
+  const [stagedOrder, setStagedOrder] = useState<OrderRequest | null>(null);
+
+  useEffect(() => {
+    const unsubAcc = executionAdapterRef.current.onAccountChange(setAccount);
+    const unsubPos = executionAdapterRef.current.onPositionsChange(setPositions);
+    const unsubOrd = executionAdapterRef.current.onOrdersChange(setOrders);
+    return () => {
+      unsubAcc();
+      unsubPos();
+      unsubOrd();
+    };
+  }, []);
 
   // Historical chart navigation state
   const [panOffset, setPanOffset] = useState<number>(0); // 0 means live view at current price
@@ -132,6 +181,9 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
     // 2. Listen for price ticks
     const unsubTick = client.onTick((tick: PriceTick & { m5Countdown?: { remainingSeconds: number; countdownText: string } }) => {
+      // Feed execution adapter for simulated fill and mark-to-market valuation
+      executionAdapterRef.current.handlePriceTick(tick.symbol, tick.price);
+
       if (tick.symbol !== activeSymbolRef.current) return;
       setLastTickTimestamp(tick.timestamp);
 
@@ -276,7 +328,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
   // ONE SHARED PREDICTION STATE: Generated deterministically from live price, candles, and bias
   const [prediction, setPrediction] = useState<Prediction>(() => {
-    return AnalysisEngine.generatePrediction('XAUUSD', 2357.89, 'BULLISH', candles);
+    return AnalysisEngine.generatePrediction('XAUUSD', 2357.89, 'BULLISH', candles, 'M5');
   });
 
   // Track state to only recalculate prediction on meaningful events (candle close, symbol/tf/bias switch, or setup invalidation)
@@ -331,7 +383,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         candleCount: candles.length
       };
 
-      const updated = AnalysisEngine.generatePrediction(activeSymbol, currentPrice, activeBias, candles);
+      const updated = AnalysisEngine.generatePrediction(activeSymbol, currentPrice, activeBias, candles, activeTimeframe);
       setPrediction(updated);
     }
   }, [activeSymbol, activeTimeframe, activeBias, candles, marketOverview.currentPrice, prediction]);
@@ -345,6 +397,51 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const predictionSummary = useMemo(() => {
     return AnalysisEngine.getPredictionSummary(activeBias, prediction);
   }, [activeBias, prediction]);
+
+  // Authoritative 4-Market Map Items derived strictly from canonical AnalysisEngine
+  const marketMapItems: MarketMapItem[] = useMemo(() => {
+    const symbols: MarketSymbol[] = ['XAUUSD', 'EURJPY', 'EURUSD', 'GBPUSD'];
+    const service = TwelveDataMarketService.getInstance();
+    const states = service.getAllMarketStates();
+
+    return symbols.map(sym => {
+      const isCurrent = sym === activeSymbol;
+      const meta = MARKET_META[sym];
+      const digits = meta.pricePrecision;
+      const fallbackPrice = sym === 'XAUUSD' ? 2355.0 : sym === 'EURJPY' ? 164.5 : sym === 'EURUSD' ? 1.085 : 1.268;
+      const currentPrice = isCurrent 
+        ? marketOverview.currentPrice 
+        : (states[sym]?.price || TwelveDataMarketService.getInstance().getLatestPrice(sym) || fallbackPrice);
+
+      // Re-use current canonical prediction for the active symbol, or generate for others
+      const pred = isCurrent 
+        ? prediction 
+        : AnalysisEngine.generatePrediction(sym, currentPrice, undefined, MarketDataService.getHistoricalCandles(sym, 'M5', 60), 'M5');
+
+      const condition: 'TRENDING' | 'RANGING' | 'BEST_OPPORTUNITY' | 'AVOID' =
+        pred.confidence >= 80 ? 'BEST_OPPORTUNITY' :
+        pred.direction === 'NO TRADE' ? 'AVOID' :
+        pred.marketCondition.toLowerCase().includes('range') ? 'RANGING' : 'TRENDING';
+
+      return {
+        symbol: sym,
+        name: meta.name,
+        currentPrice,
+        direction: pred.direction,
+        strength: pred.confidence,
+        trend: pred.structure?.trend || (pred.direction === 'BULLISH' ? 'Bullish Flow' : pred.direction === 'BEARISH' ? 'Bearish Flow' : 'Equilibrium Consolidation'),
+        structure: pred.structure?.lastBOS?.description || (pred.direction === 'BULLISH' ? 'Higher High Expansion' : pred.direction === 'BEARISH' ? 'Lower Low Expansion' : 'Neutral Range'),
+        m5Setup: `${pred.orderType} (SL: ${pred.stopLoss.toFixed(digits)} / TP1: ${pred.tp1.toFixed(digits)})`,
+        keySupport: pred.keyLevels?.nearestSupport?.price || pred.support,
+        keyResistance: pred.keyLevels?.nearestResistance?.price || pred.resistance,
+        expectedMovement: pred.expectedMovement,
+        signalStatus: pred.direction !== 'NO TRADE' ? 'ACTIVE' : 'STANDBY',
+        confidence: pred.confidence,
+        classification: condition,
+        digits
+      };
+    });
+  }, [activeSymbol, marketOverview.currentPrice, prediction]);
 
   // Feed status metadata with connection state & data staleness protection
   const marketDataStatus: MarketDataStatusInfo = useMemo(() => {
@@ -432,6 +529,47 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     setActiveBias(biasMap[sym]);
   }, []);
 
+  // Execution & Risk Handlers
+  const placeOrder = useCallback(async (req: OrderRequest): Promise<OrderResult> => {
+    return executionAdapterRef.current.placeOrder(req);
+  }, []);
+
+  const closePosition = useCallback(async (positionId: string): Promise<boolean> => {
+    return executionAdapterRef.current.closePosition(positionId);
+  }, []);
+
+  const cancelOrder = useCallback(async (orderId: string): Promise<boolean> => {
+    return executionAdapterRef.current.cancelOrder(orderId);
+  }, []);
+
+  const modifyOrder = useCallback(async (orderId: string, updates: Partial<OrderRequest>): Promise<boolean> => {
+    return executionAdapterRef.current.modifyOrder(orderId, updates);
+  }, []);
+
+  const evaluateRisk = useCallback((req: OrderRequest): RiskEvaluationResult => {
+    const curPrice = candles.length > 0 ? candles[candles.length - 1].close : marketOverview.currentPrice;
+    const spread = marketOverview.spread;
+    const openCount = positions.filter(p => p.status === 'OPEN').length;
+    return riskEngineRef.current.evaluateOrder(account, req, curPrice, spread, openCount);
+  }, [candles, marketOverview.currentPrice, marketOverview.spread, positions, account]);
+
+  const stageTradeFromPrediction = useCallback(() => {
+    if (prediction.direction === 'NO TRADE') return;
+    const side = prediction.direction === 'BULLISH' ? 'BUY' : 'SELL';
+    const midEntry = Number(((prediction.entryZone.min + prediction.entryZone.max) / 2).toFixed(marketOverview.digits));
+    const newStaged: OrderRequest = {
+      symbol: activeSymbol,
+      side,
+      type: 'LIMIT',
+      lots: 0.5,
+      price: midEntry,
+      stopLoss: prediction.stopLoss,
+      takeProfit: prediction.tp3,
+      notes: `Derived from TradeXpulse ${prediction.direction} setup with RR ${prediction.riskReward}`
+    };
+    setStagedOrder(newStaged);
+  }, [prediction, activeSymbol, marketOverview.digits]);
+
   return (
     <PredictionStateContext.Provider
       value={{
@@ -454,6 +592,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         predictionSummary,
         marketDataStatus,
         historicalAnalysis,
+        marketMapItems,
         connectionStatus,
         m5CountdownText,
         isRealtime,
@@ -468,7 +607,19 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         resetView,
         overlayConfig,
         setOverlayConfig,
-        toggleOverlay
+        toggleOverlay,
+        account,
+        positions,
+        orders,
+        riskConfig,
+        placeOrder,
+        closePosition,
+        cancelOrder,
+        modifyOrder,
+        evaluateRisk,
+        stagedOrder,
+        setStagedOrder,
+        stageTradeFromPrediction
       }}
     >
       {children}

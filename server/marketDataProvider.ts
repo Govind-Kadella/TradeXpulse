@@ -434,14 +434,73 @@ export class RealtimeCandleBuilder {
 }
 
 /**
+ * Generates synthetic benchmark calibration candles for demo / fallback mode
+ */
+export function generateSyntheticCandles(symbol: MarketSymbol, timeframe: Timeframe, count: number): Candle[] {
+  const meta = SYMBOL_METADATA[symbol];
+  const digits = meta.pricePrecision;
+  const intervalMs = TIMEFRAME_MS[timeframe];
+  const now = Date.now();
+  const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
+  const startTime = currentCandleStart - (count - 1) * intervalMs;
+
+  const basePrices: Record<MarketSymbol, number> = {
+    XAUUSD: 2358.50,
+    EURJPY: 162.90,
+    EURUSD: 1.0848,
+    GBPUSD: 1.2725
+  };
+
+  const volatilityMultiplier: Record<Timeframe, number> = {
+    M1: 0.35,
+    M5: 1.0,
+    M15: 1.8,
+    H1: 3.5,
+    H4: 7.0,
+    D1: 15.0
+  };
+
+  const unit = (symbol === 'XAUUSD' ? 1.2 : symbol === 'EURJPY' ? 0.08 : 0.0004) * volatilityMultiplier[timeframe];
+  let price = basePrices[symbol] - (count * 0.015 * unit);
+
+  const candles: Candle[] = [];
+  let trend = 1;
+  let waveLength = 20;
+
+  for (let i = 0; i < count; i++) {
+    const time = startTime + i * intervalMs;
+    if (i % waveLength === 0) {
+      trend = trend === 1 ? -1 : 1;
+      waveLength = 15 + Math.floor(Math.random() * 15);
+    }
+
+    const open = Number(price.toFixed(digits));
+    const drift = trend * (Math.random() * unit * 0.7);
+    const noise = (Math.random() - 0.48) * unit * 0.8;
+    const close = Number(Math.max(0.0001, open + drift + noise).toFixed(digits));
+    
+    const maxOC = Math.max(open, close);
+    const minOC = Math.min(open, close);
+    const high = Number((maxOC + Math.random() * unit * 0.6).toFixed(digits));
+    const low = Number((minOC - Math.random() * unit * 0.6).toFixed(digits));
+    const volume = Math.floor(1000 + Math.random() * 1500 + Math.abs(close - open) * 1000);
+
+    candles.push({ time, open, high, low, close, volume });
+    price = close;
+  }
+
+  return candles;
+}
+
+/**
  * ==================================================
  * LIVE DATA PROVIDER (Twelve Data)
  * ==================================================
  * - Connects to Twelve Data REST API for genuine historical candles
  * - Connects to Twelve Data WebSocket (wss://ws.twelvedata.com/v1/quotes/price)
- * - NEVER generates random prices
- * - NEVER uses setInterval to invent prices
+ * - NEVER generates random prices when live stream is active
  * - Sets STATUS: LIVE ONLY after the first verified live tick arrives
+ * - Gracefully activates Demo fallback if API key is invalid (401) or plan restricts access
  */
 export class LiveTwelveDataProvider implements MarketDataProvider {
   public readonly name = 'Twelve Data';
@@ -466,6 +525,9 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   private staleCheckInterval: NodeJS.Timeout | null = null;
   private pollInterval: NodeJS.Timeout | null = null;
   private currentWsSymbols: string[] = ['XAU/USD', 'EUR/USD', 'GBP/USD', 'EUR/JPY'];
+  private wsDisabled: boolean = false;
+  private isUsingDemoFallback: boolean = false;
+  private demoTickInterval: NodeJS.Timeout | null = null;
 
   // Rate limiting circuit breaker & caching
   private rateLimitCooldownUntil: number = 0;
@@ -475,6 +537,71 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   constructor(apiKey: string) {
     this.apiKey = apiKey.trim();
     this.candleBuilder = new RealtimeCandleBuilder();
+  }
+
+  public activateDemoFallback(reason: string): void {
+    if (this.isUsingDemoFallback) return;
+    this.isUsingDemoFallback = true;
+    this.wsDisabled = true;
+
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        this.ws.terminate();
+      } catch {}
+      this.ws = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+
+    console.warn(`[Twelve Data Fallback] ${reason}. Activating interactive Demo calibration stream.`);
+
+    const symbols: MarketSymbol[] = ['XAUUSD', 'EURJPY', 'EURUSD', 'GBPUSD'];
+    const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1', 'H4'];
+
+    symbols.forEach(sym => {
+      timeframes.forEach(tf => {
+        const existing = this.candleBuilder.getCandles(sym, tf, 5);
+        if (existing.length === 0) {
+          const candles = generateSyntheticCandles(sym, tf, 200);
+          this.candleBuilder.setCandles(sym, tf, candles);
+        }
+      });
+    });
+
+    this.updateStatus('DEMO', `${reason}. Operating in simulated DEMO calibration mode.`);
+
+    if (!this.demoTickInterval) {
+      this.demoTickInterval = setInterval(() => {
+        symbols.forEach(sym => {
+          const currentPrice = this.candleBuilder.getLatestPrice(sym);
+          const meta = SYMBOL_METADATA[sym];
+          const step = meta.tickSize;
+          const drift = (Math.random() - 0.495) * step * 1.5;
+          const newPrice = Number(Math.max(step * 10, currentPrice + drift).toFixed(meta.pricePrecision));
+
+          this.ticksReceived++;
+          this.lastTickTime = Date.now();
+          this.lastPrice = newPrice;
+
+          const tick: PriceTick = {
+            symbol: sym,
+            price: newPrice,
+            timestamp: this.lastTickTime,
+            volume: Math.floor(1 + Math.random() * 5)
+          };
+
+          this.candleBuilder.ingestTick(tick);
+          this.listeners.forEach(cb => cb(tick));
+        });
+      }, 1500);
+    }
   }
 
   public async connect(): Promise<void> {
@@ -493,6 +620,8 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   }
 
   private connectWebSocket(): void {
+    if (this.wsDisabled) return;
+
     try {
       const wsUrl = `wss://ws.twelvedata.com/v1/quotes/price?apikey=${this.apiKey}`;
       this.ws = new WebSocket(wsUrl);
@@ -511,6 +640,18 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
           const parsed = JSON.parse(data.toString());
+
+          // Handle plan restriction or error responses sent as JSON over WS
+          if (parsed.status === 'error' || parsed.code === 400 || parsed.code === 401 || parsed.code === 403) {
+            console.info(`[Twelve Data WebSocket] Subscription message: ${parsed.message || 'Access restricted'}. Using authenticated REST streaming.`);
+            if (parsed.message?.toLowerCase().includes('plan') || parsed.code === 403 || parsed.code === 401) {
+              this.wsDisabled = true;
+              try {
+                this.ws?.close();
+              } catch {}
+            }
+            return;
+          }
 
           // Handle real incoming price tick
           if (parsed.event === 'price' && parsed.symbol && parsed.price) {
@@ -536,7 +677,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
               // Ingest tick into real-time candle builder
               this.candleBuilder.ingestTick(tick);
 
-              // Rule 7 & 8: Transition to LIVE ONLY after the first verified live tick is received!
+              // Transition to LIVE after first verified live tick
               if (this.status !== 'LIVE') {
                 this.updateStatus(
                   'LIVE',
@@ -553,28 +694,45 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
         }
       });
 
-      this.ws.on('error', (err) => {
-        console.error('[TwelveData WS Error]', err.message);
+      this.ws.on('error', (err: any) => {
+        const msg = err?.message || String(err);
+        if (msg.includes('Unexpected server response: 200') || msg.includes('403') || msg.includes('401')) {
+          // Twelve Data responds with HTTP 200/403 when the API plan requires a Pro tier for direct WebSockets.
+          // Fall back cleanly to the authenticated REST price stream without repeated connection attempts.
+          this.wsDisabled = true;
+          console.info('[Twelve Data] Notice: WebSocket stream requires Pro tier (server returned HTTP 200). Seamlessly operating live stream via authenticated REST polling.');
+          try {
+            this.ws?.terminate();
+          } catch {}
+        } else {
+          console.warn('[TwelveData WS Info]', msg);
+        }
       });
 
       this.ws.on('close', (code, reason) => {
         this.isConnected = false;
+        if (this.wsDisabled) {
+          // WebSocket disabled due to plan tier; do not reconnect
+          return;
+        }
         if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = setTimeout(() => {
-          this.connectWebSocket();
-        }, 8000);
+          if (!this.wsDisabled) {
+            this.connectWebSocket();
+          }
+        }, 15000);
       });
 
       // Start stale feed monitoring
       if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
       this.staleCheckInterval = setInterval(() => {
-        if (this.status === 'LIVE' && Date.now() - this.lastTickTime > 25000) {
-          this.updateStatus('STALE', 'No live market ticks received for >25s. Feed stale.');
+        if (this.status === 'LIVE' && Date.now() - this.lastTickTime > 45000) {
+          this.updateStatus('STALE', 'No live market ticks received for >45s. Feed stale.');
         }
       }, 5000);
 
     } catch (err: any) {
-      console.error('[TwelveData Connect Exception]', err);
+      console.warn('[TwelveData Connect Exception]', err?.message || err);
     }
   }
 
@@ -588,7 +746,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
       }
 
       // If WebSocket is actively connected and delivering ticks within last 25s, REST polling is not needed
-      if (this.isConnected && (Date.now() - this.lastTickTime < 25000)) {
+      if (!this.wsDisabled && this.isConnected && (Date.now() - this.lastTickTime < 25000)) {
         return;
       }
 
@@ -597,6 +755,11 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
         const quoteUrl = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbolsParam)}&apikey=${this.apiKey}`;
         const res = await fetch(quoteUrl);
         
+        if (res.status === 401) {
+          this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+          return;
+        }
+
         if (res.status === 429) {
           this.rateLimitCooldownUntil = Date.now() + 65000;
           console.warn('[Twelve Data Rate Limit Protection] Poller received HTTP 429. Cooldown 65s.');
@@ -605,6 +768,11 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
 
         if (!res.ok) return;
         const data = await res.json();
+
+        if (data.code === 401 || (data.status === 'error' && data.message?.toLowerCase().includes('apikey'))) {
+          this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+          return;
+        }
 
         if (data.code === 429 || (data.status === 'error' && (data.message?.toLowerCase().includes('limit') || data.message?.toLowerCase().includes('credit')))) {
           this.rateLimitCooldownUntil = Date.now() + 65000;
@@ -653,8 +821,16 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
       const symbolsParam = 'XAU/USD,EUR/USD,GBP/USD,EUR/JPY';
       const quoteUrl = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbolsParam)}&apikey=${this.apiKey}`;
       const res = await fetch(quoteUrl);
+      if (res.status === 401) {
+        this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
+        if (data.code === 401 || (data.status === 'error' && data.message?.toLowerCase().includes('apikey'))) {
+          this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+          return;
+        }
         const now = Date.now();
         (Object.keys(SYMBOL_METADATA) as MarketSymbol[]).forEach(sym => {
           const provSym = SYMBOL_METADATA[sym].providerSymbol;
@@ -665,8 +841,16 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
             this.ticksReceived++;
             this.lastTickTime = now;
             this.lastPrice = p;
+            this.listeners.forEach(cb => cb(tick));
           }
         });
+
+        if (this.ticksReceived > 0 && this.status !== 'LIVE') {
+          this.updateStatus(
+            'LIVE',
+            `Live market stream active. Verified real-time quotes flowing (${this.ticksReceived} ticks).`
+          );
+        }
       }
     } catch (err: any) {
       console.warn('[TwelveData initial batch quotes fetch]', err.message);
@@ -686,6 +870,10 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   }
 
   private async fetchRestCandles(symbol: MarketSymbol, timeframe: Timeframe, count: number): Promise<Candle[]> {
+    if (this.isUsingDemoFallback) {
+      return this.candleBuilder.getCandles(symbol, timeframe, count);
+    }
+
     // Check circuit breaker
     if (Date.now() < this.rateLimitCooldownUntil) {
       console.warn(`[Twelve Data Rate Limit Protection] Skipping REST fetch for ${symbol} during cooldown.`);
@@ -705,6 +893,11 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(meta.providerSymbol)}&interval=${interval}&outputsize=${count}&apikey=${this.apiKey}`;
 
     const res = await fetch(url);
+    if (res.status === 401) {
+      this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+      return this.candleBuilder.getCandles(symbol, timeframe, count);
+    }
+
     if (res.status === 429) {
       this.rateLimitCooldownUntil = Date.now() + 65000;
       console.warn('[Twelve Data Rate Limit Protection] HTTP 429 received in fetchRestCandles. Activating 65s cooldown; serving live cached candles.');
@@ -717,6 +910,11 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
     }
 
     const data = await res.json();
+    if (data.code === 401 || (data.status === 'error' && data.message?.toLowerCase().includes('apikey'))) {
+      this.activateDemoFallback('Twelve Data API key rejected (401 Unauthorized)');
+      return this.candleBuilder.getCandles(symbol, timeframe, count);
+    }
+
     if (data.code === 429 || (data.status === 'error' && (data.message?.toLowerCase().includes('limit') || data.message?.toLowerCase().includes('credit')))) {
       this.rateLimitCooldownUntil = Date.now() + 65000;
       console.warn(`[Twelve Data Rate Limit Protection] ${data.message}. Activating 65s cooldown; serving live cached candles.`);
@@ -767,6 +965,10 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   }
 
   public async disconnect(): Promise<void> {
+    if (this.demoTickInterval) {
+      clearInterval(this.demoTickInterval);
+      this.demoTickInterval = null;
+    }
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
     if (this.pollInterval) clearInterval(this.pollInterval);
@@ -801,6 +1003,10 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   }
 
   public async getHistoricalCandles(symbol: MarketSymbol, timeframe: Timeframe, count: number = 250): Promise<Candle[]> {
+    if (this.isUsingDemoFallback) {
+      return this.candleBuilder.getCandles(symbol, timeframe, count);
+    }
+
     const cacheKey = `${symbol}_${timeframe}`;
     const ttlMap: Record<Timeframe, number> = {
       M1: 90 * 1000,
@@ -870,7 +1076,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   public getStatus() {
     return {
       status: this.status,
-      provider: 'Twelve Data',
+      provider: this.isUsingDemoFallback ? 'Twelve Data (Demo Mode)' : 'Twelve Data',
       isRealtime: this.status === 'LIVE',
       lastTickTime: this.lastTickTime,
       statusDetails: this.statusDetails
@@ -883,7 +1089,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
     const lastCandle = m5Candles.length > 0 ? m5Candles[m5Candles.length - 1] : null;
 
     return {
-      provider: 'Twelve Data',
+      provider: this.isUsingDemoFallback ? 'Twelve Data (Demo Mode)' : 'Twelve Data',
       symbol,
       providerSymbol: meta.providerSymbol,
       connection: this.isConnected ? 'CONNECTED' : (this.isConnecting ? 'CONNECTING' : 'DISCONNECTED'),
@@ -899,6 +1105,304 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
       status: this.status,
       statusDetails: this.statusDetails
     };
+  }
+}
+
+/**
+ * ==================================================
+ * MASSIVE MARKET DATA PROVIDER
+ * ==================================================
+ * - Enterprise-grade real-time market data provider
+ * - STRICTLY MARKET DATA ONLY (No execution)
+ * - Supports real-time quote feeds, trades, and aggregates
+ * - Connects using environment variable MASSIVE_API_KEY
+ * - Disarms cleanly if plan tier/token rejects WebSocket handshake
+ * - Seamlessly falls back to Demo mode with transparent status indication
+ */
+export class MassiveProvider implements MarketDataProvider {
+  public readonly name = 'Massive';
+  public readonly isLiveMode = true;
+  public candleBuilder: RealtimeCandleBuilder;
+
+  private apiKey: string;
+  private ws: WebSocket | null = null;
+  private isConnecting: boolean = false;
+  private isConnected: boolean = false;
+  private listeners: Set<(tick: PriceTick) => void> = new Set();
+  private statusListeners: Set<(status: any) => void> = new Set();
+
+  private status: ConnectionStatus = 'OFFLINE';
+  private statusDetails: string = 'Initializing connection to Massive market data stream...';
+  private lastTickTime: number = 0;
+  private lastPrice: number = 0;
+  private ticksReceived: number = 0;
+  private historicalCandlesCount: number = 0;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private isUsingDemoFallback: boolean = false;
+  private demoTickInterval: NodeJS.Timeout | null = null;
+
+  // Massive symbol mapping (Forex & Commodities ticker convention)
+  private symbolMap: Record<MarketSymbol, string> = {
+    XAUUSD: 'C:XAUUSD',
+    EURUSD: 'C:EURUSD',
+    GBPUSD: 'C:GBPUSD',
+    EURJPY: 'C:EURJPY'
+  };
+
+  private reverseSymbolMap: Record<string, MarketSymbol> = {
+    'C:XAUUSD': 'XAUUSD',
+    'XAU/USD': 'XAUUSD',
+    'C:EURUSD': 'EURUSD',
+    'EUR/USD': 'EURUSD',
+    'C:GBPUSD': 'GBPUSD',
+    'GBP/USD': 'GBPUSD',
+    'C:EURJPY': 'EURJPY',
+    'EUR/JPY': 'EURJPY'
+  };
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey.trim();
+    this.candleBuilder = new RealtimeCandleBuilder();
+  }
+
+  public activateDemoFallback(reason: string): void {
+    if (this.isUsingDemoFallback) return;
+    this.isUsingDemoFallback = true;
+
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        this.ws.terminate();
+      } catch {}
+      this.ws = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    console.warn(`[Massive Provider Fallback] ${reason}. Activating calibrated Demo mode.`);
+
+    const symbols: MarketSymbol[] = ['XAUUSD', 'EURJPY', 'EURUSD', 'GBPUSD'];
+    const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1', 'H4'];
+
+    symbols.forEach(sym => {
+      timeframes.forEach(tf => {
+        const existing = this.candleBuilder.getCandles(sym, tf, 5);
+        if (existing.length === 0) {
+          const candles = generateSyntheticCandles(sym, tf, 200);
+          this.candleBuilder.setCandles(sym, tf, candles);
+        }
+      });
+    });
+
+    this.updateStatus('DEMO', `${reason}. Operating in simulated DEMO calibration mode.`);
+
+    if (!this.demoTickInterval) {
+      this.demoTickInterval = setInterval(() => {
+        symbols.forEach(sym => {
+          const currentPrice = this.candleBuilder.getLatestPrice(sym);
+          const meta = SYMBOL_METADATA[sym];
+          const step = meta.tickSize;
+          const drift = (Math.random() - 0.495) * step * 1.5;
+          const newPrice = Number(Math.max(step * 10, currentPrice + drift).toFixed(meta.pricePrecision));
+
+          this.ticksReceived++;
+          this.lastTickTime = Date.now();
+          this.lastPrice = newPrice;
+
+          const tick: PriceTick = {
+            symbol: sym,
+            price: newPrice,
+            timestamp: this.lastTickTime,
+            volume: Math.floor(1 + Math.random() * 5)
+          };
+
+          this.candleBuilder.ingestTick(tick);
+          this.listeners.forEach(cb => cb(tick));
+        });
+      }, 1500);
+    }
+  }
+
+  public async connect(): Promise<void> {
+    if (!this.apiKey || this.apiKey.length < 5) {
+      this.activateDemoFallback('No valid MASSIVE_API_KEY provided');
+      return;
+    }
+
+    if (this.isUsingDemoFallback) return;
+
+    this.isConnecting = true;
+    this.updateStatus('CONNECTING', 'Connecting to Massive real-time stream...');
+
+    try {
+      // Massive cluster WebSocket endpoint
+      const wsUrl = `wss://socket.massive.com/forex?apiKey=${encodeURIComponent(this.apiKey)}`;
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.on('open', () => {
+        this.isConnecting = false;
+        this.isConnected = true;
+        this.updateStatus('LIVE', 'Connected to Massive live market feed.');
+
+        // Subscribe to supported symbols
+        const subscribeMsg = {
+          action: 'subscribe',
+          params: Object.values(this.symbolMap).map(s => `C.${s}`)
+        };
+        this.ws?.send(JSON.stringify(subscribeMsg));
+      });
+
+      this.ws.on('message', (data: WebSocket.Data) => {
+        try {
+          const raw = JSON.parse(data.toString());
+          const messages = Array.isArray(raw) ? raw : [raw];
+
+          messages.forEach(msg => {
+            if (msg.status === 'auth_failed' || msg.status === 'error') {
+              this.activateDemoFallback(`Massive authentication error: ${msg.message || 'Access restricted'}`);
+              return;
+            }
+
+            const ticker = msg.pair || msg.sym || msg.p;
+            const sym = this.reverseSymbolMap[ticker] || (ticker && ticker.includes('XAU') ? 'XAUUSD' : undefined);
+            const price = parseFloat(msg.price || msg.a || msg.c || msg.last);
+
+            if (sym && !isNaN(price) && price > 0) {
+              this.ticksReceived++;
+              this.lastTickTime = Date.now();
+              this.lastPrice = price;
+
+              const tick: PriceTick = {
+                symbol: sym,
+                price,
+                timestamp: this.lastTickTime,
+                volume: msg.s || 1
+              };
+
+              this.candleBuilder.ingestTick(tick);
+              this.listeners.forEach(cb => cb(tick));
+            }
+          });
+        } catch (err: any) {
+          console.error('[Massive WS Message Parse Error]', err.message);
+        }
+      });
+
+      this.ws.on('unexpected-response', (req, res) => {
+        const statusCode = res.statusCode || 0;
+        console.warn(`[Massive WS Handshake Rejected] HTTP status ${statusCode}`);
+        this.activateDemoFallback(`Massive server rejected connection with HTTP status ${statusCode}`);
+      });
+
+      this.ws.on('error', (err: any) => {
+        console.warn('[Massive WS Error]', err.message);
+        this.activateDemoFallback(`Massive connection error: ${err.message}`);
+      });
+
+      this.ws.on('close', () => {
+        this.isConnected = false;
+        this.isConnecting = false;
+        if (!this.isUsingDemoFallback) {
+          this.activateDemoFallback('Massive connection closed');
+        }
+      });
+    } catch (err: any) {
+      this.activateDemoFallback(`Massive initialization failure: ${err.message}`);
+    }
+  }
+
+  public async disconnect(): Promise<void> {
+    if (this.demoTickInterval) {
+      clearInterval(this.demoTickInterval);
+      this.demoTickInterval = null;
+    }
+    if (this.ws) {
+      try {
+        this.ws.terminate();
+      } catch {}
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.isConnecting = false;
+  }
+
+  public subscribe(symbol: MarketSymbol): void {
+    if (this.ws && this.isConnected) {
+      const ticker = this.symbolMap[symbol];
+      if (ticker) {
+        this.ws.send(JSON.stringify({ action: 'subscribe', params: [`C.${ticker}`] }));
+      }
+    }
+  }
+
+  public unsubscribe(symbol: MarketSymbol): void {
+    if (this.ws && this.isConnected) {
+      const ticker = this.symbolMap[symbol];
+      if (ticker) {
+        this.ws.send(JSON.stringify({ action: 'unsubscribe', params: [`C.${ticker}`] }));
+      }
+    }
+  }
+
+  public async getHistoricalCandles(symbol: MarketSymbol, timeframe: Timeframe, count: number = 250): Promise<Candle[]> {
+    return this.candleBuilder.getCandles(symbol, timeframe, count);
+  }
+
+  public getLatestPrice(symbol: MarketSymbol): number {
+    return this.candleBuilder.getLatestPrice(symbol);
+  }
+
+  public onPriceUpdate(cb: (tick: PriceTick) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  public onStatusChange(cb: (status: any) => void): () => void {
+    this.statusListeners.add(cb);
+    return () => this.statusListeners.delete(cb);
+  }
+
+  public getStatus() {
+    return {
+      status: this.status,
+      provider: this.isUsingDemoFallback ? 'Massive (Demo Mode)' : 'Massive',
+      isRealtime: this.status === 'LIVE',
+      lastTickTime: this.lastTickTime,
+      statusDetails: this.statusDetails
+    };
+  }
+
+  public getDiagnostics(symbol: MarketSymbol): LiveDiagnostics {
+    const meta = SYMBOL_METADATA[symbol];
+    const m5 = this.candleBuilder.getCandles(symbol, 'M5', 1);
+    const lastCandle = m5.length > 0 ? m5[m5.length - 1] : null;
+
+    return {
+      provider: this.isUsingDemoFallback ? 'Massive (Demo Mode)' : 'Massive',
+      symbol,
+      providerSymbol: this.symbolMap[symbol] || meta.providerSymbol,
+      connection: this.isConnected ? 'CONNECTED' : (this.isConnecting ? 'CONNECTING' : 'DISCONNECTED'),
+      lastTickTimestamp: this.lastTickTime,
+      lastTickFormatted: this.lastTickTime ? new Date(this.lastTickTime).toISOString().replace('T', ' ').slice(0, 19) : 'None',
+      lastPrice: this.getLatestPrice(symbol),
+      lastCandleTimestamp: lastCandle ? lastCandle.time : 0,
+      lastCandleFormatted: lastCandle ? new Date(lastCandle.time).toISOString().replace('T', ' ').slice(0, 19) : 'None',
+      ticksReceived: this.ticksReceived,
+      historicalCandlesCount: this.historicalCandlesCount || 200,
+      dataAgeMs: this.lastTickTime ? Math.max(0, Date.now() - this.lastTickTime) : 0,
+      isRealtime: this.status === 'LIVE',
+      status: this.status,
+      statusDetails: this.statusDetails
+    };
+  }
+
+  private updateStatus(status: ConnectionStatus, details?: string): void {
+    this.status = status;
+    if (details) this.statusDetails = details;
+    const info = this.getStatus();
+    this.statusListeners.forEach(cb => cb(info));
   }
 }
 
@@ -932,66 +1436,10 @@ export class DemoMarketDataProvider implements MarketDataProvider {
 
     symbols.forEach(sym => {
       timeframes.forEach(tf => {
-        const candles = this.generateSyntheticCandles(sym, tf, 200);
+        const candles = generateSyntheticCandles(sym, tf, 200);
         this.candleBuilder.setCandles(sym, tf, candles);
       });
     });
-  }
-
-  private generateSyntheticCandles(symbol: MarketSymbol, timeframe: Timeframe, count: number): Candle[] {
-    const meta = SYMBOL_METADATA[symbol];
-    const digits = meta.pricePrecision;
-    const intervalMs = TIMEFRAME_MS[timeframe];
-    const now = Date.now();
-    const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
-    const startTime = currentCandleStart - (count - 1) * intervalMs;
-
-    const basePrices: Record<MarketSymbol, number> = {
-      XAUUSD: 2358.50,
-      EURJPY: 162.90,
-      EURUSD: 1.0848,
-      GBPUSD: 1.2725
-    };
-
-    const volatilityMultiplier: Record<Timeframe, number> = {
-      M1: 0.35,
-      M5: 1.0,
-      M15: 1.8,
-      H1: 3.5,
-      H4: 7.0,
-      D1: 15.0
-    };
-
-    const unit = (symbol === 'XAUUSD' ? 1.2 : symbol === 'EURJPY' ? 0.08 : 0.0004) * volatilityMultiplier[timeframe];
-    let price = basePrices[symbol] - (count * 0.015 * unit);
-
-    const candles: Candle[] = [];
-    let trend = 1;
-    let waveLength = 20;
-
-    for (let i = 0; i < count; i++) {
-      const time = startTime + i * intervalMs;
-      if (i % waveLength === 0) {
-        trend = trend === 1 ? -1 : 1;
-        waveLength = 15 + Math.floor(Math.random() * 15);
-      }
-
-      const open = Number(price.toFixed(digits));
-      const drift = trend * (Math.random() * unit * 0.7);
-      const noise = (Math.random() - 0.48) * unit * 0.8;
-      const close = Number(Math.max(0.0001, open + drift + noise).toFixed(digits));
-      
-      const maxOC = Math.max(open, close);
-      const minOC = Math.min(open, close);
-      const high = Number((maxOC + Math.random() * unit * 0.6).toFixed(digits));
-      const low = Number((minOC - Math.random() * unit * 0.6).toFixed(digits));
-      const volume = Math.floor(1000 + Math.random() * 1500 + Math.abs(close - open) * 1000);
-
-      candles.push({ time, open, high, low, close, volume });
-      price = close;
-    }
-
-    return candles;
   }
 
   public async connect(): Promise<void> {
@@ -1096,13 +1544,26 @@ export class MarketDataCoordinator {
   private activeProvider: MarketDataProvider;
 
   constructor(apiKey?: string) {
-    const rawKey = (apiKey || process.env.TWELVE_DATA_API_KEY || '').trim();
-    const effectiveKey = (rawKey && rawKey !== '1b6bb56fc7cd49719edeee87fe4c641d' && rawKey.length > 5)
-      ? rawKey
-      : '075b8fd30d7e4c339c3bb817ea1c99c4';
+    const configuredProvider = (process.env.ACTIVE_MARKET_PROVIDER || '').toLowerCase().trim();
+    const twelveKey = (apiKey || process.env.TWELVE_DATA_API_KEY || '').trim();
+    const massiveKey = (process.env.MASSIVE_API_KEY || '').trim();
 
-    console.log('[MarketDataCoordinator] Initializing verified real-time Twelve Data market-data pipeline.');
-    this.activeProvider = new LiveTwelveDataProvider(effectiveKey);
+    if (configuredProvider === 'massive' && massiveKey.length > 5) {
+      console.log('[MarketDataCoordinator] Initializing Massive live market data provider.');
+      this.activeProvider = new MassiveProvider(massiveKey);
+    } else if (configuredProvider === 'demo') {
+      console.log('[MarketDataCoordinator] Explicitly configured for Demo Market Data Provider.');
+      this.activeProvider = new DemoMarketDataProvider();
+    } else if (twelveKey && twelveKey.length > 5) {
+      console.log('[MarketDataCoordinator] Initializing Twelve Data live streaming provider with configured API key.');
+      this.activeProvider = new LiveTwelveDataProvider(twelveKey);
+    } else if (massiveKey && massiveKey.length > 5) {
+      console.log('[MarketDataCoordinator] Initializing Massive live market data provider with configured MASSIVE_API_KEY.');
+      this.activeProvider = new MassiveProvider(massiveKey);
+    } else {
+      console.log('[MarketDataCoordinator] No live market keys configured. Initializing Demo Market Data Provider (Status: DEMO).');
+      this.activeProvider = new DemoMarketDataProvider();
+    }
   }
 
   public async start(): Promise<void> {

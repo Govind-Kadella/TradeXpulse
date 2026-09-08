@@ -11,7 +11,10 @@ import {
   Copy,
   Check,
   AlertTriangle,
-  HelpCircle
+  HelpCircle,
+  Gauge,
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 
 export const RightAiPanel: React.FC = () => {
@@ -22,7 +25,9 @@ export const RightAiPanel: React.FC = () => {
     setBias,
     isAnalyzing,
     triggerAiAnalysis,
-    marketOverview
+    marketOverview,
+    setView,
+    stageTradeFromPrediction
   } = usePredictionState();
 
   const [copied, setCopied] = useState<boolean>(false);
@@ -181,6 +186,62 @@ Invalidation: ${prediction.invalidation}`;
           </div>
         </div>
 
+        {/* Evidence Scoring Section */}
+        {prediction.evidenceScoring && (
+          <div className="bg-[#121929] border border-[#1F2937] rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between border-b border-[#1F2937] pb-1.5">
+              <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase flex items-center gap-1.5">
+                <Gauge className="w-3.5 h-3.5 text-blue-400" />
+                EVIDENCE SCORING
+              </span>
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                prediction.evidenceScoring.confluenceMet
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+              }`}>
+                {prediction.evidenceScoring.confluenceMet ? 'CONFLUENCE MET' : 'NO CONFLUENCE'}
+              </span>
+            </div>
+
+            {/* Score Bars */}
+            <div className="space-y-1.5 text-[11px] font-mono">
+              <div>
+                <div className="flex justify-between text-slate-400 mb-0.5">
+                  <span className="text-emerald-400 font-bold">Bullish Evidence</span>
+                  <span className="text-white">{prediction.evidenceScoring.bullishEvidenceScore}/100</span>
+                </div>
+                <div className="w-full bg-[#0A0E17] h-1.5 rounded-full overflow-hidden border border-[#1F2937]">
+                  <div 
+                    className="bg-emerald-500 h-full rounded-full transition-all"
+                    style={{ width: `${prediction.evidenceScoring.bullishEvidenceScore}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-0.5">
+                  <span className="text-rose-400 font-bold">Bearish Evidence</span>
+                  <span className="text-white">{prediction.evidenceScoring.bearishEvidenceScore}/100</span>
+                </div>
+                <div className="w-full bg-[#0A0E17] h-1.5 rounded-full overflow-hidden border border-[#1F2937]">
+                  <div 
+                    className="bg-rose-500 h-full rounded-full transition-all"
+                    style={{ width: `${prediction.evidenceScoring.bearishEvidenceScore}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Conflict warning if present */}
+            {prediction.evidenceScoring.conflictWarning && (
+              <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>{prediction.evidenceScoring.conflictWarning}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ==================================================
             SECTION 2: PRIMARY SETUP (OR NO TRADE STATE)
            ================================================== */}
@@ -255,6 +316,20 @@ Invalidation: ${prediction.invalidation}`;
                   {prediction.riskReward}
                 </span>
               </div>
+
+              {/* Stage Trade in Execution Engine Action */}
+              <button
+                type="button"
+                onClick={() => {
+                  stageTradeFromPrediction();
+                  setView('execution');
+                }}
+                className="w-full mt-2 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-[0_0_12px_rgba(59,130,246,0.3)] cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Stage Setup in Execution Ticket
+                <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+              </button>
             </>
           ) : (
             /* Requirement 7: NO TRADE fully supported state */

@@ -23,6 +23,7 @@ export const TradingChart: React.FC = () => {
     activeBias,
     activeTimeframe,
     historicalAnalysis,
+    connectionStatus,
     panOffset,
     setPanOffset,
     visibleCandleCount,
@@ -788,6 +789,41 @@ export const TradingChart: React.FC = () => {
       ctx.fillText(supLabel, paddingLeft + 13, supY + 3.5);
     }
 
+    // 5F. Liquidity Pools (PDH, PDL, Session Extremes, EQH/EQL)
+    if (prediction.liquidityLevels && prediction.liquidityLevels.length > 0 && overlayConfig.showHistoricalLevels) {
+      prediction.liquidityLevels.slice(0, 5).forEach((liq, lIdx) => {
+        const liqY = priceToY(liq.price);
+        if (liqY >= paddingTop && liqY <= paddingTop + plotHeight) {
+          ctx.strokeStyle = liq.swept 
+            ? 'rgba(100, 116, 139, 0.35)' 
+            : (liq.side === 'BUY_SIDE' ? 'rgba(245, 158, 11, 0.65)' : 'rgba(56, 189, 248, 0.65)');
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(paddingLeft, liqY);
+          ctx.lineTo(paddingLeft + plotWidth, liqY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Label
+          const labelText = `${liq.label} ${liq.swept ? '(SWEPT)' : ''}`;
+          ctx.font = 'bold 8px JetBrains Mono, monospace';
+          const lw = ctx.measureText(labelText).width + 8;
+          ctx.fillStyle = '#0E1421';
+          ctx.strokeStyle = liq.side === 'BUY_SIDE' ? '#f59e0b' : '#38bdf8';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(paddingLeft + plotWidth - lw - 10, liqY - 7, lw, 14, 2);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = liq.side === 'BUY_SIDE' ? '#fcd34d' : '#7dd3fc';
+          ctx.textAlign = 'right';
+          ctx.fillText(labelText, paddingLeft + plotWidth - 14, liqY + 3);
+        }
+      });
+    }
+
     // 6. Current Price Level Line and Live Beacon (Inside Plot Area)
     if (isAtLiveEdge) {
       const currentY = priceToY(liveClosePrice);
@@ -1129,6 +1165,50 @@ export const TradingChart: React.FC = () => {
     return null;
   }, [activeInspectionCandle, candleRange, candleBody, upperWick, lowerWick, isInspectionBull]);
 
+  // Technical Confluence Intelligence for Inspected Candle
+  const candleConfluence = useMemo(() => {
+    if (!activeInspectionCandle) return null;
+    const time = activeInspectionCandle.time;
+    const price = activeInspectionCandle.close;
+
+    // Pattern
+    const pat = prediction.patterns?.find(p => Math.abs(p.timestamp - time) < 1000 * 60 * 15) || 
+      (detectedPattern ? { name: detectedPattern } : null);
+
+    // BOS
+    const bosEv = prediction.structureEvents?.find(e => e.type === 'BOS' && Math.abs(e.timestamp - time) < 1000 * 60 * 45);
+    const bosLabel = bosEv 
+      ? `${bosEv.direction === 'BULLISH' ? '+' : '-'}BOS` 
+      : (historicalAnalysis?.lastBOS ? `${historicalAnalysis.lastBOS.type === 'BULLISH' ? '+' : '-'}BOS` : null);
+
+    // CHoCH
+    const chochEv = prediction.structureEvents?.find(e => e.type === 'CHoCH' && Math.abs(e.timestamp - time) < 1000 * 60 * 60);
+    const chochLabel = chochEv ? `${chochEv.direction === 'BULLISH' ? '+' : '-'}CHoCH` : null;
+
+    // FVG
+    const fvg = prediction.fvgs?.find(f => activeInspectionCandle.low <= f.upperPrice && activeInspectionCandle.high >= f.lowerPrice);
+
+    // Order Block
+    const ob = prediction.orderBlocks?.find(o => activeInspectionCandle.low <= o.priceHigh && activeInspectionCandle.high >= o.priceLow);
+
+    // Liquidity
+    const liq = prediction.structureEvents?.find(e => (e.type === 'LIQUIDITY_SWEEP' || e.type === 'EQH' || e.type === 'EQL') && Math.abs(e.timestamp - time) < 1000 * 60 * 60);
+
+    // S/R
+    const sup = prediction.support;
+    const res = prediction.resistance;
+
+    return {
+      pattern: pat?.name || null,
+      bos: bosLabel,
+      choch: chochLabel,
+      fvg: fvg ? `${fvg.direction === 'BULLISH' ? 'Bull' : 'Bear'} FVG` : null,
+      orderBlock: ob ? `${ob.direction === 'BULLISH' ? 'Demand' : 'Supply'} OB` : null,
+      liquidity: liq ? (liq.type === 'LIQUIDITY_SWEEP' ? 'Liq Sweep' : liq.type) : null,
+      nearestSR: Math.abs(price - sup) < Math.abs(price - res) ? `Sup ${sup.toFixed(marketOverview.digits)}` : `Res ${res.toFixed(marketOverview.digits)}`
+    };
+  }, [activeInspectionCandle, prediction, detectedPattern, marketOverview.digits, historicalAnalysis]);
+
   return (
     <div 
       ref={containerRef} 
@@ -1171,18 +1251,52 @@ export const TradingChart: React.FC = () => {
           </div>
         )}
 
-        {/* Extended Candle Anatomy & Technical Pattern Badge (When Hovering / Inspecting) */}
+        {/* Extended Candle Anatomy HUD (When Hovering / Inspecting) */}
         {activeInspectionCandle && (
           <div className="hidden xl:flex items-center gap-2 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-2.5 py-1.5 rounded shadow-lg text-[10px] font-mono">
             <span className="text-slate-400">Range: <strong className="text-slate-200">{candleRange}</strong></span>
             <span className="text-slate-400">Body: <strong className="text-slate-200">{candleBody}</strong></span>
             <span className="text-slate-400">UW: <strong className="text-slate-200">{upperWick}</strong></span>
             <span className="text-slate-400">LW: <strong className="text-slate-200">{lowerWick}</strong></span>
-            {detectedPattern && (
+          </div>
+        )}
+
+        {/* Technical Confluence HUD (Pattern, BOS, CHoCH, FVG, Liquidity, OB, S/R) */}
+        {activeInspectionCandle && candleConfluence && (
+          <div className="hidden 2xl:flex items-center gap-1.5 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-2.5 py-1.5 rounded shadow-lg text-[10px] font-mono">
+            {candleConfluence.pattern && (
               <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
-                {detectedPattern}
+                {candleConfluence.pattern}
               </span>
             )}
+            {candleConfluence.bos && (
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                {candleConfluence.bos}
+              </span>
+            )}
+            {candleConfluence.choch && (
+              <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                {candleConfluence.choch}
+              </span>
+            )}
+            {candleConfluence.fvg && (
+              <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+                {candleConfluence.fvg}
+              </span>
+            )}
+            {candleConfluence.orderBlock && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                {candleConfluence.orderBlock}
+              </span>
+            )}
+            {candleConfluence.liquidity && (
+              <span className="px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 font-bold border border-pink-500/30">
+                {candleConfluence.liquidity}
+              </span>
+            )}
+            <span className="text-slate-400 border-l border-[#1F2937] pl-1.5 font-semibold text-slate-300">
+              {candleConfluence.nearestSR}
+            </span>
           </div>
         )}
 
@@ -1195,11 +1309,22 @@ export const TradingChart: React.FC = () => {
               -{clampedPan} BARS
             </span>
           </div>
-        ) : (
+        ) : connectionStatus === 'LIVE' ? (
           <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-emerald-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
             <span className="font-bold">LIVE MARKET</span>
             <span className="text-[9px] text-emerald-400/70 font-semibold">(Follow Active)</span>
+          </div>
+        ) : connectionStatus === 'DEMO' ? (
+          <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-amber-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
+            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+            <span className="font-bold">DEMO (SIMULATED)</span>
+            <span className="text-[9px] text-amber-300/70 font-semibold">Feed Ready</span>
+          </div>
+        ) : (
+          <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-blue-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-blue-400">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
+            <span className="font-bold">{connectionStatus}</span>
           </div>
         )}
       </div>
