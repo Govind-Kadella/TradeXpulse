@@ -1244,7 +1244,7 @@ export class MassiveProvider implements MarketDataProvider {
       this.ws.on('open', () => {
         this.isConnecting = false;
         this.isConnected = true;
-        this.updateStatus('LIVE', 'Connected to Massive live market feed.');
+        this.updateStatus('CONNECTING', 'Connected to Massive socket. Awaiting verified realtime tick data...');
 
         // Subscribe to supported symbols
         const subscribeMsg = {
@@ -1270,6 +1270,11 @@ export class MassiveProvider implements MarketDataProvider {
             const price = parseFloat(msg.price || msg.a || msg.c || msg.last);
 
             if (sym && !isNaN(price) && price > 0) {
+              // Mark status as verified LIVE only after valid real-time market tick is processed
+              if (this.status !== 'LIVE') {
+                this.updateStatus('LIVE', 'Verified realtime Massive tick stream active.');
+              }
+
               this.ticksReceived++;
               this.lastTickTime = Date.now();
               this.lastPrice = price;

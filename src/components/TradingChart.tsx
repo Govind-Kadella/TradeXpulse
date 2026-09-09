@@ -24,10 +24,9 @@ export const TradingChart: React.FC = () => {
     activeTimeframe,
     historicalAnalysis,
     connectionStatus,
-    panOffset,
-    setPanOffset,
-    visibleCandleCount,
-    setVisibleCandleCount,
+    viewport,
+    setViewport,
+    loadMoreHistory,
     returnToLive,
     isHistoricalView,
     zoomIn,
@@ -42,17 +41,21 @@ export const TradingChart: React.FC = () => {
 
   // Dragging & Interaction State
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStartX, setDragStartX] = useState<number>(0);
-  const [dragStartOffset, setDragStartOffset] = useState<number>(0);
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartFirstVisibleRef = useRef<number>(0);
+  const lastClientXRef = useRef<number>(0);
+  const lastDragTimeRef = useRef<number>(0);
+  const dragVelocityRef = useRef<number>(0);
+  const momentumRafRef = useRef<number | null>(null);
+
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  // Velocity tracking for inertial panning and touch pinch-to-zoom
-  const dragVelocityRef = useRef<number>(0);
-  const lastDragTimeRef = useRef<number>(0);
-  const lastDragClientXRef = useRef<number>(0);
+  // Touch tracking for pinch-to-zoom and gestures
   const touchDistanceRef = useRef<number | null>(null);
+  const touchAnchorRatioRef = useRef<number>(0.5);
 
   // Responsive canvas dimensions
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({
@@ -75,22 +78,10 @@ export const TradingChart: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
-  // Compute visible candles slice and layout metrics
-  const totalCandles = candles.length;
-  const visibleCount = Math.max(16, Math.min(totalCandles, visibleCandleCount));
-  const maxPan = Math.max(0, totalCandles - visibleCount);
-  const clampedPan = Math.max(0, Math.min(maxPan, panOffset));
-
-  // Determine candle start and end index
-  const startIndex = Math.max(0, totalCandles - visibleCount - clampedPan);
-  const endIndex = Math.min(totalCandles, startIndex + visibleCount);
-  const visibleCandles = useMemo(() => candles.slice(startIndex, endIndex), [candles, startIndex, endIndex]);
-
-  // Is the latest live candle in view?
-  const isAtLiveEdge = clampedPan === 0;
-
-  // Forecast projection bars (only shown on the right side if live edge is within view)
-  const forecastBars = isAtLiveEdge && overlayConfig.showForecastPath ? 24 : 6;
+  // Determine candle start and end index based on independent viewport
+  const startBar = Math.max(0, Math.floor(viewport.firstVisibleIndex) - 2);
+  const endBar = Math.min(candles.length - 1, Math.ceil(viewport.firstVisibleIndex + viewport.visibleBarCount) + 2);
+  const visibleCandles = useMemo(() => candles.slice(startBar, endBar + 1), [candles, startBar, endBar]);
 
   // Main Canvas Render Loop
   useEffect(() => {
@@ -120,12 +111,34 @@ export const TradingChart: React.FC = () => {
 
     if (visibleCandles.length === 0) return;
 
-    // Calculate Price Range
+    // Unified Chart Viewport Coordinate Mapping
+    const barSpacing = plotWidth / viewport.visibleBarCount;
+    const candleWidth = Math.max(2, Math.min(22, barSpacing * 0.70));
+
+    const candleToX = (globalIdx: number) => {
+      return paddingLeft + (globalIdx - viewport.firstVisibleIndex) * barSpacing + barSpacing / 2;
+    };
+
+    const lastHistoricalCandleIndex = candles.length - 1;
+    const liveFirstVisibleIndex = (lastHistoricalCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
+    const isAtLiveEdge = viewport.mode === 'LIVE' || (viewport.firstVisibleIndex >= liveFirstVisibleIndex - 1.2);
+
+    const lastCandleX = candleToX(lastHistoricalCandleIndex);
+    const liveCandle = candles[lastHistoricalCandleIndex];
+    const liveClosePrice = liveCandle ? liveCandle.close : marketOverview.currentPrice;
+
+    // Forecast region horizontal boundaries (starts strictly at latest candle, ends inside plot)
+    const forecastStartX = lastCandleX + barSpacing * 0.5;
+    const chartRightBoundary = paddingLeft + plotWidth;
+    const forecastRightBoundary = Math.min(chartRightBoundary - 14, candleToX(lastHistoricalCandleIndex + viewport.rightOffsetBars));
+    const actualForecastWidth = Math.max(10, forecastRightBoundary - forecastStartX);
+
+    // Calculate Price Range from visible historical candles
     let minPrice = Math.min(...visibleCandles.map(c => c.low));
     let maxPrice = Math.max(...visibleCandles.map(c => c.high));
 
-    // Include prediction levels in scale if viewing live edge
-    if (isAtLiveEdge) {
+    // Include prediction levels in scale if viewing live edge or if forecast region is visible on screen
+    if (isAtLiveEdge || (lastCandleX >= paddingLeft && lastCandleX <= chartRightBoundary)) {
       if (overlayConfig.showTargets && activeBias !== 'NO TRADE') {
         minPrice = Math.min(
           minPrice,
@@ -166,30 +179,6 @@ export const TradingChart: React.FC = () => {
       const fraction = (paddingTop + plotHeight - y) / plotHeight;
       return paddedMin + fraction * paddedRange;
     };
-
-    // Calculate candle horizontal slot width and layout zones
-    // When at live edge, allocate ~74% to historical candles and ~26% to the future forecast region
-    const forecastWidthRatio = isAtLiveEdge && overlayConfig.showForecastPath ? 0.26 : 0;
-    const historyPlotWidth = plotWidth * (1 - forecastWidthRatio);
-    const slotWidth = historyPlotWidth / visibleCandles.length;
-    const candleWidth = Math.max(2.5, Math.min(18, slotWidth * 0.68));
-
-    const candleToX = (index: number) => {
-      return paddingLeft + index * slotWidth + slotWidth / 2;
-    };
-
-    const lastHistoricalCandleIndex = visibleCandles.length - 1;
-    const lastCandleX = candleToX(lastHistoricalCandleIndex);
-    const liveCandle = candles[candles.length - 1];
-    const liveClosePrice = liveCandle ? liveCandle.close : marketOverview.currentPrice;
-
-    // Forecast region horizontal boundaries (starts strictly at latest candle, ends inside plot)
-    const forecastStartX = lastCandleX + slotWidth * 0.5;
-    const chartRightBoundary = paddingLeft + plotWidth;
-    // Safe margin on the right: 28px before chart's right boundary so arrowheads and labels NEVER clip
-    const safeRightMargin = 28;
-    const forecastRightBoundary = chartRightBoundary - safeRightMargin;
-    const actualForecastWidth = Math.max(10, forecastRightBoundary - forecastStartX);
 
     // 1. Subtle Horizontal Price Grid Lines
     ctx.strokeStyle = 'rgba(31, 41, 55, 0.45)';
@@ -238,10 +227,11 @@ export const TradingChart: React.FC = () => {
       }
     } else {
       // Historical replay banner
+      const barsScrolled = Math.max(1, Math.round(liveFirstVisibleIndex - viewport.firstVisibleIndex));
       ctx.font = 'bold 10px JetBrains Mono, monospace';
       ctx.fillStyle = '#f59e0b';
       ctx.textAlign = 'left';
-      ctx.fillText(`◀ HISTORICAL VIEW (Scrolled ${clampedPan} bars back in time)`, paddingLeft + 6, paddingTop - 10);
+      ctx.fillText(`◀ HISTORICAL VIEW (Scrolled ${barsScrolled} bars back in time)`, paddingLeft + 6, paddingTop - 10);
     }
     ctx.restore();
 
@@ -259,18 +249,22 @@ export const TradingChart: React.FC = () => {
     if (overlayConfig.showVolume) {
       const maxVolume = Math.max(...visibleCandles.map(c => c.volume), 1);
       const maxVolHeight = plotHeight * 0.15;
-      visibleCandles.forEach((c, idx) => {
-        const x = candleToX(idx);
+      for (let i = startBar; i <= endBar; i++) {
+        const c = candles[i];
+        if (!c) continue;
+        const x = candleToX(i);
         const isBull = c.close >= c.open;
         const volHeight = (c.volume / maxVolume) * maxVolHeight;
         ctx.fillStyle = isBull ? 'rgba(16, 185, 129, 0.16)' : 'rgba(239, 68, 68, 0.16)';
         ctx.fillRect(x - candleWidth / 2, paddingTop + plotHeight - volHeight, candleWidth, volHeight);
-      });
+      }
     }
 
     // 4. Draw Historical Candlesticks (Historical market movement = actual candles)
-    visibleCandles.forEach((candle, idx) => {
-      const x = candleToX(idx);
+    for (let i = startBar; i <= endBar; i++) {
+      const candle = candles[i];
+      if (!candle) continue;
+      const x = candleToX(i);
       const isBull = candle.close >= candle.open;
       const openY = priceToY(candle.open);
       const closeY = priceToY(candle.close);
@@ -293,12 +287,12 @@ export const TradingChart: React.FC = () => {
       ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
 
       // Hover highlight ring
-      if (hoveredIndex === idx) {
+      if (hoveredIndex === i) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.lineWidth = 1;
         ctx.strokeRect(x - candleWidth / 2 - 2, bodyTop - 2, candleWidth + 4, bodyHeight + 4);
       }
-    });
+    }
 
     // 5. FORECAST VISUALIZATION (Begins ONLY from current/latest candle when viewing live edge)
     if (isAtLiveEdge && overlayConfig.showForecastPath) {
@@ -902,7 +896,7 @@ export const TradingChart: React.FC = () => {
       ctx.textAlign = 'center';
       ctx.fillText(liveClosePrice.toFixed(marketOverview.digits), paddingLeft + plotWidth + (paddingRight - 8) / 2 + 2, currentY + 3.5);
     } else {
-      const histLastClose = visibleCandles[visibleCandles.length - 1]?.close || marketOverview.currentPrice;
+      const histLastClose = candles[Math.min(candles.length - 1, endBar)]?.close || marketOverview.currentPrice;
       const histY = priceToY(histLastClose);
       ctx.fillStyle = '#334155';
       ctx.beginPath();
@@ -919,14 +913,21 @@ export const TradingChart: React.FC = () => {
     ctx.fillStyle = '#64748b';
     ctx.font = '9px JetBrains Mono, monospace';
     ctx.textAlign = 'center';
-    const timeStep = Math.max(1, Math.floor(visibleCandles.length / 6));
-    for (let i = 0; i < visibleCandles.length; i += timeStep) {
-      const c = visibleCandles[i];
-      const x = candleToX(i);
-      const timeStr = new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      ctx.fillText(timeStr, x, height - 8);
+    const barInterval = Math.max(1, Math.round(viewport.visibleBarCount / 7));
+    const firstLabeledBar = Math.floor(viewport.firstVisibleIndex / barInterval) * barInterval;
+    const lastLabeledBar = Math.ceil((viewport.firstVisibleIndex + viewport.visibleBarCount) / barInterval) * barInterval;
+
+    for (let b = firstLabeledBar; b <= lastLabeledBar; b += barInterval) {
+      if (b >= 0 && b < candles.length) {
+        const c = candles[b];
+        const x = candleToX(b);
+        if (x >= paddingLeft + 15 && x <= paddingLeft + plotWidth - 15) {
+          const timeStr = new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          ctx.fillText(timeStr, x, height - 8);
+        }
+      }
     }
-    if (isAtLiveEdge && overlayConfig.showForecastPath) {
+    if (isAtLiveEdge && overlayConfig.showForecastPath && actualForecastWidth > 50) {
       ctx.fillStyle = activeBias === 'BULLISH' ? '#10b981' : activeBias === 'BEARISH' ? '#ef4444' : '#f59e0b';
       ctx.font = 'bold 9px JetBrains Mono, monospace';
       ctx.fillText('FUTURE FORECAST REGION', forecastStartX + actualForecastWidth / 2, height - 8);
@@ -950,9 +951,9 @@ export const TradingChart: React.FC = () => {
       ctx.fillText(hoveredPrice.toFixed(marketOverview.digits), paddingLeft + plotWidth + (paddingRight - 8) / 2 + 2, mousePos.y + 3.5);
 
       // Bottom floating time tag
-      const hoveredSlot = Math.floor((mousePos.x - paddingLeft) / slotWidth);
-      if (hoveredSlot >= 0 && hoveredSlot < visibleCandles.length) {
-        const c = visibleCandles[hoveredSlot];
+      const hoveredBar = Math.floor(viewport.firstVisibleIndex + (mousePos.x - paddingLeft - barSpacing / 2) / barSpacing);
+      if (hoveredBar >= 0 && hoveredBar < candles.length) {
+        const c = candles[hoveredBar];
         const timeStr = new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         ctx.fillStyle = '#1e293b';
         ctx.strokeStyle = '#64748b';
@@ -977,21 +978,28 @@ export const TradingChart: React.FC = () => {
     prediction,
     activeBias,
     activeTimeframe,
-    clampedPan,
-    isAtLiveEdge,
-    forecastBars,
+    viewport,
     mousePos,
     hoveredIndex,
     overlayConfig
   ]);
 
+  const stopMomentum = () => {
+    if (momentumRafRef.current !== null) {
+      cancelAnimationFrame(momentumRafRef.current);
+      momentumRafRef.current = null;
+    }
+  };
+
   // Mouse pan & drag handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    stopMomentum();
     setIsDragging(true);
-    setDragStartX(e.clientX);
-    setDragStartOffset(panOffset);
-    lastDragClientXRef.current = e.clientX;
-    lastDragTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartFirstVisibleRef.current = viewport.firstVisibleIndex;
+    lastClientXRef.current = e.clientX;
+    lastDragTimeRef.current = performance.now();
     dragVelocityRef.current = 0;
   };
 
@@ -1003,74 +1011,148 @@ export const TradingChart: React.FC = () => {
     const y = e.clientY - rect.top;
     setMousePos({ x, y });
 
-    // Detect hovered candle for OHLC inspection
     const paddingLeft = 14;
     const paddingRight = 85;
     const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
-    const forecastWidthRatio = isAtLiveEdge && overlayConfig.showForecastPath ? 0.26 : 0;
-    const historyPlotWidth = plotWidth * (1 - forecastWidthRatio);
-    const slotWidth = historyPlotWidth / visibleCandles.length;
+    const barSpacing = plotWidth / viewport.visibleBarCount;
 
-    const slot = Math.floor((x - paddingLeft) / slotWidth);
-    if (slot >= 0 && slot < visibleCandles.length) {
-      setHoveredCandle(visibleCandles[slot]);
-      setHoveredIndex(slot);
+    // Detect hovered candle for OHLC inspection
+    const hoveredBar = Math.floor(viewport.firstVisibleIndex + (x - paddingLeft) / barSpacing);
+    if (hoveredBar >= 0 && hoveredBar < candles.length) {
+      setHoveredCandle(candles[hoveredBar]);
+      setHoveredIndex(hoveredBar);
     } else {
       setHoveredCandle(null);
       setHoveredIndex(null);
     }
 
-    // Standard chart panning:
-    // Drag LEFT (e.clientX < dragStartX) -> moves backward through history (increases panOffset)
-    // Drag RIGHT (e.clientX > dragStartX) -> moves forward toward live edge (decreases panOffset)
-    if (isDragging) {
-      const deltaX = dragStartX - e.clientX;
-      const candleShift = Math.round(deltaX / Math.max(6, slotWidth));
-      const newOffset = Math.max(0, Math.min(candles.length - visibleCount, dragStartOffset + candleShift));
-      setPanOffset(newOffset);
-
-      // Track drag velocity for smooth flick deceleration
-      const now = Date.now();
+    // Professional 1:1 direct pointer drag interaction:
+    // Dragging RIGHT (e.clientX > dragStartX) -> moves candles right, revealing older history -> firstVisibleIndex decreases
+    // Dragging LEFT (e.clientX < dragStartX) -> moves candles left, revealing newer candles -> firstVisibleIndex increases
+    if (isDraggingRef.current) {
+      const now = performance.now();
       const dt = Math.max(1, now - lastDragTimeRef.current);
-      dragVelocityRef.current = (lastDragClientXRef.current - e.clientX) / dt;
-      lastDragClientXRef.current = e.clientX;
+      const instantVelocity = (e.clientX - lastClientXRef.current) / dt;
+      dragVelocityRef.current = instantVelocity * 0.7 + dragVelocityRef.current * 0.3;
+      lastClientXRef.current = e.clientX;
       lastDragTimeRef.current = now;
+
+      const totalDx = e.clientX - dragStartXRef.current;
+      const barsMoved = totalDx / barSpacing;
+      let targetFirst = dragStartFirstVisibleRef.current - barsMoved;
+
+      const lastCandleIndex = candles.length - 1;
+      const liveFirst = (lastCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
+
+      // Clean snap to live edge if dragged near the current live bar
+      if (targetFirst >= liveFirst - 0.8) {
+        setViewport(prev => ({
+          ...prev,
+          firstVisibleIndex: liveFirst,
+          mode: 'LIVE',
+          isFollowingLive: true
+        }));
+      } else {
+        setViewport(prev => ({
+          ...prev,
+          firstVisibleIndex: targetFirst,
+          mode: 'HISTORICAL',
+          isFollowingLive: false
+        }));
+
+        // Seamlessly prepend older bars if scrolled near left edge
+        if (targetFirst < 15) {
+          loadMoreHistory();
+        }
+      }
     }
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
-    // Smooth inertial momentum deceleration if dragged fast
-    if (Math.abs(dragVelocityRef.current) > 0.4) {
-      let v = dragVelocityRef.current * 7;
-      const momentumStep = () => {
-        v *= 0.88;
-        if (Math.abs(v) > 0.3) {
-          setPanOffset(prev => Math.max(0, Math.min(candles.length - visibleCount, Math.round(prev + v))));
-          requestAnimationFrame(momentumStep);
+    isDraggingRef.current = false;
+
+    // Smooth inertial momentum deceleration if flicked
+    if (Math.abs(dragVelocityRef.current) > 0.25) {
+      let vel = dragVelocityRef.current;
+      let lastTime = performance.now();
+
+      const runMomentum = (now: number) => {
+        const dt = Math.min(32, now - lastTime);
+        lastTime = now;
+        vel *= 0.92;
+
+        if (Math.abs(vel) > 0.04) {
+          const paddingLeft = 14;
+          const paddingRight = 85;
+          const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
+          const barSpacing = plotWidth / viewport.visibleBarCount;
+          const barsShift = (vel * dt) / barSpacing;
+
+          setViewport(prev => {
+            const lastCandleIndex = candles.length - 1;
+            const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - prev.visibleBarCount;
+            const nextFirst = prev.firstVisibleIndex - barsShift;
+
+            if (nextFirst >= liveFirst - 0.8) {
+              stopMomentum();
+              return {
+                ...prev,
+                firstVisibleIndex: liveFirst,
+                mode: 'LIVE',
+                isFollowingLive: true
+              };
+            }
+
+            if (nextFirst < 15) {
+              loadMoreHistory();
+            }
+
+            return {
+              ...prev,
+              firstVisibleIndex: nextFirst,
+              mode: 'HISTORICAL',
+              isFollowingLive: false
+            };
+          });
+
+          momentumRafRef.current = requestAnimationFrame(runMomentum);
+        } else {
+          stopMomentum();
         }
       };
-      requestAnimationFrame(momentumStep);
+
+      momentumRafRef.current = requestAnimationFrame(runMomentum);
     }
     dragVelocityRef.current = 0;
   };
 
-  // Multi-touch gestures for mobile & tablet (1-finger drag, 2-finger pinch-to-zoom)
+  // Multi-touch gestures (1-finger pan, 2-finger anchor-centered pinch-to-zoom)
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    stopMomentum();
     if (e.touches.length === 1) {
       const t = e.touches[0];
       setIsDragging(true);
-      setDragStartX(t.clientX);
-      setDragStartOffset(panOffset);
-      lastDragClientXRef.current = t.clientX;
-      lastDragTimeRef.current = Date.now();
+      isDraggingRef.current = true;
+      dragStartXRef.current = t.clientX;
+      dragStartFirstVisibleRef.current = viewport.firstVisibleIndex;
+      lastClientXRef.current = t.clientX;
+      lastDragTimeRef.current = performance.now();
       dragVelocityRef.current = 0;
       touchDistanceRef.current = null;
     } else if (e.touches.length === 2) {
       setIsDragging(false);
+      isDraggingRef.current = false;
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       touchDistanceRef.current = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const plotWidth = canvasDimensions.width - 85 - 14;
+        touchAnchorRatioRef.current = Math.max(0.05, Math.min(0.95, (midX - 14) / plotWidth));
+      }
     }
   };
 
@@ -1087,33 +1169,76 @@ export const TradingChart: React.FC = () => {
       const paddingLeft = 14;
       const paddingRight = 85;
       const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
-      const forecastWidthRatio = isAtLiveEdge && overlayConfig.showForecastPath ? 0.26 : 0;
-      const historyPlotWidth = plotWidth * (1 - forecastWidthRatio);
-      const slotWidth = historyPlotWidth / visibleCandles.length;
+      const barSpacing = plotWidth / viewport.visibleBarCount;
 
-      const slot = Math.floor((x - paddingLeft) / slotWidth);
-      if (slot >= 0 && slot < visibleCandles.length) {
-        setHoveredCandle(visibleCandles[slot]);
-        setHoveredIndex(slot);
+      const hoveredBar = Math.floor(viewport.firstVisibleIndex + (x - paddingLeft) / barSpacing);
+      if (hoveredBar >= 0 && hoveredBar < candles.length) {
+        setHoveredCandle(candles[hoveredBar]);
+        setHoveredIndex(hoveredBar);
       }
 
-      if (isDragging) {
-        const deltaX = dragStartX - t.clientX;
-        const candleShift = Math.round(deltaX / Math.max(6, slotWidth));
-        const newOffset = Math.max(0, Math.min(candles.length - visibleCount, dragStartOffset + candleShift));
-        setPanOffset(newOffset);
+      if (isDraggingRef.current) {
+        const totalDx = t.clientX - dragStartXRef.current;
+        const barsMoved = totalDx / barSpacing;
+        let targetFirst = dragStartFirstVisibleRef.current - barsMoved;
+
+        const lastCandleIndex = candles.length - 1;
+        const liveFirst = (lastCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
+
+        if (targetFirst >= liveFirst - 0.8) {
+          setViewport(prev => ({
+            ...prev,
+            firstVisibleIndex: liveFirst,
+            mode: 'LIVE',
+            isFollowingLive: true
+          }));
+        } else {
+          setViewport(prev => ({
+            ...prev,
+            firstVisibleIndex: targetFirst,
+            mode: 'HISTORICAL',
+            isFollowingLive: false
+          }));
+
+          if (targetFirst < 15) {
+            loadMoreHistory();
+          }
+        }
       }
     } else if (e.touches.length === 2 && touchDistanceRef.current !== null) {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const diff = dist - touchDistanceRef.current;
-      if (Math.abs(diff) > 16) {
-        if (diff > 0) {
-          zoomIn();
-        } else {
-          zoomOut();
-        }
+      const ratio = touchDistanceRef.current / dist;
+
+      if (Math.abs(dist - touchDistanceRef.current) > 4) {
+        const anchorRatio = touchAnchorRatioRef.current;
+        setViewport(prev => {
+          const newVisible = Math.max(16, Math.min(240, Math.round(prev.visibleBarCount * (ratio > 1 ? 1.05 : 0.95))));
+          const anchorIndex = prev.firstVisibleIndex + anchorRatio * prev.visibleBarCount;
+          let newFirst = anchorIndex - anchorRatio * newVisible;
+
+          const lastCandleIndex = candles.length - 1;
+          const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - newVisible;
+
+          if (prev.isFollowingLive || newFirst >= liveFirst - 1.0) {
+            return {
+              ...prev,
+              visibleBarCount: newVisible,
+              firstVisibleIndex: liveFirst,
+              mode: 'LIVE',
+              isFollowingLive: true
+            };
+          }
+
+          return {
+            ...prev,
+            visibleBarCount: newVisible,
+            firstVisibleIndex: newFirst,
+            mode: 'HISTORICAL',
+            isFollowingLive: false
+          };
+        });
         touchDistanceRef.current = dist;
       }
     }
@@ -1121,24 +1246,82 @@ export const TradingChart: React.FC = () => {
 
   const handleTouchEnd = () => {
     setIsDragging(false);
+    isDraggingRef.current = false;
     touchDistanceRef.current = null;
   };
 
-  // Mouse wheel: horizontal pan on deltaX / shiftKey; zoom on vertical wheel
+  // Mouse wheel: horizontal pan on deltaX / shiftKey; cursor-centered zoom on vertical wheel
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    stopMomentum();
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = e.clientX - rect.left;
+    const paddingLeft = 14;
+    const paddingRight = 85;
+    const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
+
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
-      // Horizontal pan via trackpad or shift-wheel
+      // Horizontal swipe pan
       const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-      const shift = Math.sign(delta) * 2;
-      setPanOffset(prev => Math.max(0, Math.min(candles.length - visibleCount, prev + shift)));
+      const barSpacing = plotWidth / viewport.visibleBarCount;
+      const barsShift = (delta * 0.45) / barSpacing;
+
+      setViewport(prev => {
+        const lastCandleIndex = candles.length - 1;
+        const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - prev.visibleBarCount;
+        const nextFirst = prev.firstVisibleIndex + barsShift;
+
+        if (nextFirst >= liveFirst - 0.8) {
+          return {
+            ...prev,
+            firstVisibleIndex: liveFirst,
+            mode: 'LIVE',
+            isFollowingLive: true
+          };
+        }
+        if (nextFirst < 15) {
+          loadMoreHistory();
+        }
+        return {
+          ...prev,
+          firstVisibleIndex: nextFirst,
+          mode: 'HISTORICAL',
+          isFollowingLive: false
+        };
+      });
     } else {
-      // Vertical wheel zooms in / zooms out
-      if (e.deltaY < 0) {
-        zoomIn();
-      } else {
-        zoomOut();
-      }
+      // Cursor-anchored Zoom (the candle under the cursor stays fixed in place)
+      const anchorRatio = Math.max(0.05, Math.min(0.95, (mouseX - paddingLeft) / plotWidth));
+      const zoomFactor = e.deltaY > 0 ? 1.10 : 0.91;
+
+      setViewport(prev => {
+        const newVisible = Math.max(16, Math.min(240, Math.round(prev.visibleBarCount * zoomFactor)));
+        const anchorIndex = prev.firstVisibleIndex + anchorRatio * prev.visibleBarCount;
+        let newFirst = anchorIndex - anchorRatio * newVisible;
+
+        const lastCandleIndex = candles.length - 1;
+        const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - newVisible;
+
+        if (prev.isFollowingLive || newFirst >= liveFirst - 1.0) {
+          return {
+            ...prev,
+            visibleBarCount: newVisible,
+            firstVisibleIndex: liveFirst,
+            mode: 'LIVE',
+            isFollowingLive: true
+          };
+        }
+
+        return {
+          ...prev,
+          visibleBarCount: newVisible,
+          firstVisibleIndex: newFirst,
+          mode: 'HISTORICAL',
+          isFollowingLive: false
+        };
+      });
     }
   };
 
@@ -1306,7 +1489,7 @@ export const TradingChart: React.FC = () => {
             <History className="w-3.5 h-3.5 text-amber-400" />
             <span className="font-bold">HISTORICAL VIEW</span>
             <span className="text-[9px] bg-amber-500/20 px-1 py-0.5 rounded text-amber-200 font-bold border border-amber-500/30">
-              -{clampedPan} BARS
+              -{Math.max(1, Math.round(((candles.length - 1 + viewport.rightOffsetBars) - viewport.visibleBarCount) - viewport.firstVisibleIndex))} BARS
             </span>
           </div>
         ) : connectionStatus === 'LIVE' ? (

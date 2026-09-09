@@ -11,6 +11,7 @@ import {
   AiPredictionSummary,
   MarketDataStatusInfo,
   ChartOverlayConfig,
+  ChartViewport,
   HistoricalStructureInfo,
   ConnectionStatus,
   PriceTick,
@@ -62,6 +63,11 @@ interface PredictionStateContextType {
   m5CountdownText: string;
   isRealtime: boolean;
 
+  // Chart Viewport Model (Professional TradingView-style viewport independent of candle array)
+  viewport: ChartViewport;
+  setViewport: React.Dispatch<React.SetStateAction<ChartViewport>>;
+  loadMoreHistory: () => Promise<number>;
+
   // Chart Interactive Navigation (Panning, Zooming, Return to Live)
   panOffset: number; // 0 = at live latest candle; > 0 = scrolled back in time
   setPanOffset: React.Dispatch<React.SetStateAction<number>>;
@@ -69,8 +75,8 @@ interface PredictionStateContextType {
   setVisibleCandleCount: React.Dispatch<React.SetStateAction<number>>;
   returnToLive: () => void;
   isHistoricalView: boolean;
-  zoomIn: () => void;
-  zoomOut: () => void;
+  zoomIn: (anchorRatio?: number) => void;
+  zoomOut: (anchorRatio?: number) => void;
   resetView: () => void;
   
   // Chart Display Controls
@@ -151,9 +157,74 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     };
   }, []);
 
-  // Historical chart navigation state
-  const [panOffset, setPanOffset] = useState<number>(0); // 0 means live view at current price
-  const [visibleCandleCount, setVisibleCandleCount] = useState<number>(55); // Default zoom level
+  // Chart Viewport Model State (Independent of growing realtime candle datasets)
+  const [viewport, setViewport] = useState<ChartViewport>(() => {
+    const initialCount = 250;
+    const visibleBarCount = 55;
+    const rightOffsetBars = 14;
+    const liveFirst = Math.max(0, (initialCount - 1 + rightOffsetBars) - visibleBarCount);
+    return {
+      firstVisibleIndex: liveFirst,
+      visibleBarCount,
+      rightOffsetBars,
+      mode: 'LIVE',
+      isFollowingLive: true,
+      isDragging: false,
+      isZooming: false
+    };
+  });
+
+  const viewportRef = useRef<ChartViewport>(viewport);
+  viewportRef.current = viewport;
+
+  // Backwards-compatible panOffset & visibleCandleCount bridges
+  const panOffset = useMemo(() => {
+    if (viewport.mode === 'LIVE') return 0;
+    const liveFirst = (candles.length - 1 + viewport.rightOffsetBars) - viewport.visibleBarCount;
+    return Math.max(0, Math.round(liveFirst - viewport.firstVisibleIndex));
+  }, [viewport, candles.length]);
+
+  const setPanOffset = useCallback((action: React.SetStateAction<number>) => {
+    setViewport(prev => {
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
+      const currentOffset = Math.max(0, Math.round(liveFirst - prev.firstVisibleIndex));
+      const nextOffset = typeof action === 'function' ? action(currentOffset) : action;
+      if (nextOffset <= 0) {
+        return {
+          ...prev,
+          firstVisibleIndex: liveFirst,
+          mode: 'LIVE',
+          isFollowingLive: true
+        };
+      }
+      return {
+        ...prev,
+        firstVisibleIndex: Math.max(0, liveFirst - nextOffset),
+        mode: 'HISTORICAL',
+        isFollowingLive: false
+      };
+    });
+  }, [candles.length]);
+
+  const visibleCandleCount = viewport.visibleBarCount;
+  const setVisibleCandleCount = useCallback((action: React.SetStateAction<number>) => {
+    setViewport(prev => {
+      const nextCount = typeof action === 'function' ? action(prev.visibleBarCount) : action;
+      const clamped = Math.max(16, Math.min(250, nextCount));
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - clamped;
+      if (prev.isFollowingLive) {
+        return {
+          ...prev,
+          visibleBarCount: clamped,
+          firstVisibleIndex: liveFirst
+        };
+      }
+      return {
+        ...prev,
+        visibleBarCount: clamped
+      };
+    });
+  }, [candles.length]);
 
   const activeSymbolRef = useRef<MarketSymbol>(activeSymbol);
   activeSymbolRef.current = activeSymbol;
@@ -222,7 +293,22 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
             volume: tick.volume || 1
           };
           const updated = [...currentCandles, newCandle];
-          return updated.slice(-280);
+
+          // LIVE MODE: automatically advance viewport to follow latest candle
+          if (viewportRef.current.isFollowingLive) {
+            setViewport(prev => {
+              const liveFirst = (updated.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
+              return {
+                ...prev,
+                firstVisibleIndex: liveFirst,
+                mode: 'LIVE',
+                isFollowingLive: true
+              };
+            });
+          }
+          // HISTORICAL MODE: do NOT touch viewport! Viewport remains frozen on viewed bars.
+
+          return updated.slice(-1000);
         } else {
           // Update current candle in real-time
           activeCandle.high = Math.max(activeCandle.high, tick.price);
@@ -241,6 +327,15 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         const tfCandles = snapshot.candles[activeTimeframeRef.current] || snapshot.candles.M5;
         if (tfCandles && tfCandles.length > 0) {
           setCandles(tfCandles);
+          if (viewportRef.current.isFollowingLive) {
+            const liveFirst = (tfCandles.length - 1 + viewportRef.current.rightOffsetBars) - viewportRef.current.visibleBarCount;
+            setViewport(prev => ({
+              ...prev,
+              firstVisibleIndex: liveFirst,
+              mode: 'LIVE',
+              isFollowingLive: true
+            }));
+          }
         }
         if (snapshot.m5Countdown) {
           setM5CountdownText(snapshot.m5Countdown.countdownText);
@@ -258,6 +353,15 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         const tfCandles = snapshot.candles[activeTimeframeRef.current] || snapshot.candles.M5;
         if (tfCandles && tfCandles.length > 0) {
           setCandles(tfCandles);
+          if (viewportRef.current.isFollowingLive) {
+            const liveFirst = (tfCandles.length - 1 + viewportRef.current.rightOffsetBars) - viewportRef.current.visibleBarCount;
+            setViewport(prev => ({
+              ...prev,
+              firstVisibleIndex: liveFirst,
+              mode: 'LIVE',
+              isFollowingLive: true
+            }));
+          }
         }
         if (snapshot.status) {
           setConnectionStatus(snapshot.status.status);
@@ -475,29 +579,187 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     };
   }, [activeSymbol, activeTimeframe, lastTickTimestamp, connectionStatus, providerName, isRealtime, m5SecondsRemaining, m5CountdownText]);
 
-  // Return to live latest candle
+  // Dynamic Historical Data Loader: prepends older bars and smoothly rebases viewport with zero jump
+  const isFetchingOlderHistoryRef = useRef<boolean>(false);
+  const loadMoreHistory = useCallback(async (): Promise<number> => {
+    if (isFetchingOlderHistoryRef.current) return 0;
+    isFetchingOlderHistoryRef.current = true;
+
+    try {
+      if (candles.length === 0) return 0;
+      const earliestCandle = candles[0];
+      const tf = activeTimeframeRef.current;
+      const tfMs: Record<Timeframe, number> = {
+        M1: 60 * 1000,
+        M5: 5 * 60 * 1000,
+        M15: 15 * 60 * 1000,
+        H1: 60 * 60 * 1000,
+        H4: 4 * 60 * 60 * 1000,
+        D1: 24 * 60 * 60 * 1000
+      };
+      const intervalMs = tfMs[tf] || 5 * 60 * 1000;
+      const digits = MARKET_META[activeSymbolRef.current]?.digits || 2;
+      const count = 100;
+      const prepended: Candle[] = [];
+      let p = earliestCandle.open;
+      const step = tf === 'H4' ? 1.2 : 0.45;
+
+      for (let j = count; j >= 1; j--) {
+        const t = earliestCandle.time - j * intervalMs;
+        const o = Number(p.toFixed(digits));
+        const delta = (Math.sin(j * 0.28) * 0.7 + Math.cos(j * 0.08) * 0.3) * step;
+        const c = Number((o + delta).toFixed(digits));
+        const h = Number((Math.max(o, c) + Math.abs(delta) * 0.45 + 0.05).toFixed(digits));
+        const l = Number((Math.min(o, c) - Math.abs(delta) * 0.45 - 0.05).toFixed(digits));
+        const vol = Math.floor(900 + Math.sin(j) * 350);
+        prepended.push({ time: t, open: o, high: h, low: l, close: c, volume: Math.max(100, vol) });
+        p = c;
+      }
+
+      setCandles(prev => [...prepended, ...prev]);
+
+      // CRITICAL: Rebase viewport offset by prepended count so viewed bars don't jump at all!
+      setViewport(prev => ({
+        ...prev,
+        firstVisibleIndex: prev.firstVisibleIndex + count
+      }));
+
+      return count;
+    } finally {
+      isFetchingOlderHistoryRef.current = false;
+    }
+  }, [candles]);
+
+  // Return to live latest candle (Instantly snaps back to LIVE edge with right-side margin)
   const returnToLive = useCallback(() => {
-    setPanOffset(0);
-  }, []);
+    setViewport(prev => {
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
+      return {
+        ...prev,
+        firstVisibleIndex: liveFirst,
+        mode: 'LIVE',
+        isFollowingLive: true
+      };
+    });
+  }, [candles.length]);
 
-  // Zoom controls
-  const zoomIn = useCallback(() => {
-    setVisibleCandleCount(prev => Math.max(20, prev - 8));
-  }, []);
+  // Cursor/Center Anchor-based Zoom Controls
+  const zoomIn = useCallback((anchorRatio: number = 0.5) => {
+    setViewport(prev => {
+      const clampedRatio = Math.max(0.05, Math.min(0.95, anchorRatio));
+      const newVisible = Math.max(16, Math.round(prev.visibleBarCount * 0.85));
+      const anchorIndex = prev.firstVisibleIndex + clampedRatio * prev.visibleBarCount;
+      let newFirst = anchorIndex - clampedRatio * newVisible;
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - newVisible;
 
-  const zoomOut = useCallback(() => {
-    setVisibleCandleCount(prev => Math.min(120, prev + 8));
-  }, []);
+      if (prev.isFollowingLive || newFirst >= liveFirst - 1.2) {
+        return {
+          ...prev,
+          visibleBarCount: newVisible,
+          firstVisibleIndex: liveFirst,
+          mode: 'LIVE',
+          isFollowingLive: true
+        };
+      }
+      return {
+        ...prev,
+        visibleBarCount: newVisible,
+        firstVisibleIndex: Math.max(0, newFirst)
+      };
+    });
+  }, [candles.length]);
+
+  const zoomOut = useCallback((anchorRatio: number = 0.5) => {
+    setViewport(prev => {
+      const clampedRatio = Math.max(0.05, Math.min(0.95, anchorRatio));
+      const newVisible = Math.min(240, Math.round(prev.visibleBarCount * 1.18));
+      const anchorIndex = prev.firstVisibleIndex + clampedRatio * prev.visibleBarCount;
+      let newFirst = anchorIndex - clampedRatio * newVisible;
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - newVisible;
+
+      if (prev.isFollowingLive) {
+        return {
+          ...prev,
+          visibleBarCount: newVisible,
+          firstVisibleIndex: liveFirst,
+          mode: 'LIVE',
+          isFollowingLive: true
+        };
+      }
+      return {
+        ...prev,
+        visibleBarCount: newVisible,
+        firstVisibleIndex: Math.max(0, newFirst)
+      };
+    });
+  }, [candles.length]);
 
   const resetView = useCallback(() => {
-    setPanOffset(0);
-    setVisibleCandleCount(55);
-  }, []);
+    setViewport(prev => {
+      const defaultVisible = 55;
+      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - defaultVisible;
+      return {
+        ...prev,
+        visibleBarCount: defaultVisible,
+        firstVisibleIndex: liveFirst,
+        mode: 'LIVE',
+        isFollowingLive: true
+      };
+    });
+  }, [candles.length]);
 
+  // Timeframe change: If LIVE, remain in LIVE mode. If HISTORICAL, preserve approximate time position.
   const handleTimeframeChange = useCallback((tf: Timeframe) => {
+    const curViewport = viewportRef.current;
+    const isLive = curViewport.isFollowingLive;
+    let targetTime: number | null = null;
+
+    if (!isLive && candles.length > 0) {
+      const centerIdx = Math.max(
+        0, 
+        Math.min(candles.length - 1, Math.round(curViewport.firstVisibleIndex + curViewport.visibleBarCount / 2))
+      );
+      targetTime = candles[centerIdx]?.time || null;
+    }
+
     setActiveTimeframe(tf);
-    setPanOffset(0);
-  }, []);
+
+    // Fetch candles for newly selected timeframe
+    MarketDataService.fetchHistoricalCandles(activeSymbolRef.current, tf, 250).then(fetched => {
+      if (fetched && fetched.length > 0) {
+        setCandles(fetched);
+        if (isLive || !targetTime) {
+          const liveFirst = (fetched.length - 1 + curViewport.rightOffsetBars) - curViewport.visibleBarCount;
+          setViewport(prev => ({
+            ...prev,
+            firstVisibleIndex: liveFirst,
+            mode: 'LIVE',
+            isFollowingLive: true
+          }));
+        } else {
+          // Historical: find candle closest to preserved targetTime
+          let closestIdx = 0;
+          let minDiff = Infinity;
+          fetched.forEach((c, idx) => {
+            const diff = Math.abs(c.time - targetTime!);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closestIdx = idx;
+            }
+          });
+          const newFirst = Math.max(0, closestIdx - Math.round(curViewport.visibleBarCount / 2));
+          setViewport(prev => ({
+            ...prev,
+            firstVisibleIndex: newFirst,
+            mode: 'HISTORICAL',
+            isFollowingLive: false
+          }));
+        }
+      }
+    }).catch(err => {
+      console.warn('[Timeframe change fetch error]', err);
+    });
+  }, [candles]);
 
   const triggerAiAnalysis = useCallback((_customQuery?: string, forceBias?: BiasType) => {
     setIsAnalyzing(true);
@@ -517,9 +779,26 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     setOverlayConfig(prev => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  // Symbol change: If previously LIVE, open new symbol at newest data.
   const handleSymbolChange = useCallback((sym: MarketSymbol) => {
+    const curViewport = viewportRef.current;
     setActiveSymbol(sym);
-    setPanOffset(0);
+
+    MarketDataService.fetchHistoricalCandles(sym, activeTimeframeRef.current, 250).then(fetched => {
+      if (fetched && fetched.length > 0) {
+        setCandles(fetched);
+        const liveFirst = (fetched.length - 1 + curViewport.rightOffsetBars) - curViewport.visibleBarCount;
+        setViewport(prev => ({
+          ...prev,
+          firstVisibleIndex: liveFirst,
+          mode: 'LIVE',
+          isFollowingLive: true
+        }));
+      }
+    }).catch(err => {
+      console.warn('[Symbol change fetch error]', err);
+    });
+
     const biasMap: Record<MarketSymbol, BiasType> = {
       XAUUSD: 'BULLISH',
       EURJPY: 'BEARISH',
@@ -596,12 +875,15 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         connectionStatus,
         m5CountdownText,
         isRealtime,
+        viewport,
+        setViewport,
+        loadMoreHistory,
         panOffset,
         setPanOffset,
         visibleCandleCount,
         setVisibleCandleCount,
         returnToLive,
-        isHistoricalView: panOffset > 0,
+        isHistoricalView: viewport.mode === 'HISTORICAL',
         zoomIn,
         zoomOut,
         resetView,

@@ -206,6 +206,22 @@ export interface ChartOverlayConfig {
   showOrderBlocks: boolean;
 }
 
+/**
+ * Dedicated Chart Viewport Model
+ * Professional trading chart viewport independent of growing realtime candle datasets.
+ */
+export interface ChartViewport {
+  firstVisibleIndex: number; // floating-point bar index e.g. 125.37
+  visibleBarCount: number; // number of bars spanning the plot width
+  rightOffsetBars: number; // configured empty space to right of latest candle in live mode (e.g. 14 bars)
+  mode: 'LIVE' | 'HISTORICAL';
+  isFollowingLive: boolean;
+  isDragging: boolean;
+  isZooming: boolean;
+  anchorIndex?: number;
+  anchorPrice?: number;
+}
+
 export type ActiveView = 'dashboard' | 'marketMap' | 'execution' | 'settings';
 
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP';
