@@ -56,34 +56,39 @@ export const TimeframeToolbar: React.FC = () => {
   ];
 
   return (
-    <div className="h-10 border-b border-[#1B2537] bg-[#0A0F1D] px-3 flex items-center justify-between text-xs select-none shrink-0 relative z-30 font-sans">
+    <div className="h-10 border-b border-[#1B2537] bg-[#0A0F1D] px-3 flex items-center justify-between text-xs select-none shrink-0 relative z-40 font-sans">
       {/* Timeframes & Quick Tools */}
-      <div className="flex gap-1 h-full items-center overflow-x-auto no-scrollbar">
-        {timeframes.map((item) => {
-          const isActive = activeTimeframe === item.tf;
-          return (
-            <button
-              key={item.tf}
-              id={`timeframe-btn-${item.tf.toLowerCase()}`}
-              onClick={() => setTimeframe(item.tf)}
-              className={`px-2.5 h-full text-[11px] font-bold transition-all cursor-pointer flex items-center ${
-                isActive
-                  ? 'text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 font-black'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {item.label}
-              {item.isPrimary && (
-                <span
-                  title="Primary Decision Timeframe"
-                  className="ml-1 w-1 h-1 rounded-full bg-cyan-400"
-                />
-              )}
-            </button>
-          );
-        })}
+      <div className="flex gap-1 h-full items-center min-w-0">
+        <div className="flex gap-1 h-full items-center overflow-x-auto no-scrollbar shrink-0">
+          {timeframes.map((item) => {
+            const isActive = activeTimeframe === item.tf;
+            return (
+              <button
+                key={item.tf}
+                id={`timeframe-btn-${item.tf.toLowerCase()}`}
+                onClick={() => setTimeframe(item.tf)}
+                className={`px-2.5 h-full text-[11px] font-bold transition-all cursor-pointer flex items-center ${
+                  isActive
+                    ? 'text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/10 font-black'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {item.label}
+                {item.isPrimary && (
+                  <span
+                    title="Primary Decision Timeframe"
+                    className="ml-1 w-1 h-1 rounded-full bg-cyan-400"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-        <div className="w-[1px] h-4 bg-[#1B2537] mx-1.5"></div>
+        <div className="w-[1px] h-4 bg-[#1B2537] mx-1.5 shrink-0"></div>
+
+        {/* Action Controls & Dropdowns (overflow-visible) */}
+        <div className="flex items-center gap-1 sm:gap-1.5 overflow-visible">
 
         {/* Indicators Button */}
         <div className="relative">
@@ -303,6 +308,7 @@ export const TimeframeToolbar: React.FC = () => {
             }`}
           />
         </button>
+        </div>
       </div>
 
       {/* Right: Chart Controls (Crosshair, Cursor, Drawing, Zoom, Reset, Fullscreen) & M5 Countdown */}

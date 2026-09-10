@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { PredictionStateProvider, usePredictionState } from './context/PredictionStateContext';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -6,6 +6,7 @@ import { TimeframeToolbar } from './components/TimeframeToolbar';
 import { TradingChart } from './components/TradingChart';
 import { RightAiPanel } from './components/RightAiPanel';
 import { BottomMetrics } from './components/BottomMetrics';
+import { ResizeDivider } from './components/ResizeDivider';
 import { Footer } from './components/Footer';
 import { MarketMapView } from './components/MarketMapView';
 import { SettingsView } from './components/SettingsView';
@@ -21,7 +22,7 @@ const MainLayout: React.FC = () => {
       const saved = localStorage.getItem('tradexpulse_chart_split');
       if (saved) {
         const val = parseFloat(saved);
-        if (!isNaN(val) && val >= 30 && val <= 85) return val;
+        if (!isNaN(val) && val >= 25 && val <= 85) return val;
       }
     } catch {
       // ignore
@@ -29,75 +30,8 @@ const MainLayout: React.FC = () => {
     return 65; // default 65% chart, 35% bottom metrics
   });
 
-  const [isResizing, setIsResizing] = useState<boolean>(false);
-
-  const handleResizeStart = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    if (!isResizing) return;
-
-    const handleMove = (clientY: number) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const totalH = rect.height;
-      if (totalH <= 0) return;
-
-      const currentY = clientY - rect.top;
-      const newPercent = (currentY / totalH) * 100;
-
-      // Ensure minimum usable chart height (350px) and bottom panel height (160px)
-      const minPercent = Math.max(28, (350 / totalH) * 100);
-      const maxPercent = Math.min(85, ((totalH - 160) / totalH) * 100);
-
-      const clamped = Math.max(minPercent, Math.min(maxPercent, newPercent));
-      setChartHeightPercent(clamped);
-      try {
-        localStorage.setItem('tradexpulse_chart_split', clamped.toFixed(1));
-      } catch {
-        // ignore
-      }
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      handleMove(e.clientY);
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        handleMove(e.touches[0].clientY);
-      }
-    };
-
-    const onEnd = () => {
-      setIsResizing(false);
-    };
-
-    window.addEventListener('mousemove', handleMoveThrottled);
-    window.addEventListener('mouseup', onEnd);
-    window.addEventListener('touchmove', handleTouchThrottled, { passive: false });
-    window.addEventListener('touchend', onEnd);
-
-    function handleMoveThrottled(e: MouseEvent) {
-      onMouseMove(e);
-    }
-    function handleTouchThrottled(e: TouchEvent) {
-      e.preventDefault();
-      onTouchMove(e);
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMoveThrottled);
-      window.removeEventListener('mouseup', onEnd);
-      window.removeEventListener('touchmove', handleTouchThrottled);
-      window.removeEventListener('touchend', onEnd);
-    };
-  }, [isResizing]);
-
   return (
-    <div className={`flex flex-col h-screen w-screen bg-[#070B14] text-[#F8FAFC] overflow-hidden font-sans selection:bg-cyan-500/30 ${isResizing ? 'cursor-row-resize select-none' : ''}`}>
+    <div className="flex flex-col h-screen w-screen bg-[#070B14] text-[#F8FAFC] overflow-hidden font-sans selection:bg-cyan-500/30">
       {/* 1. Header with Brand, Market Selector & System Badges (Hidden in Fullscreen) */}
       {!isChartFullscreen && <Header />}
 
@@ -135,15 +69,13 @@ const MainLayout: React.FC = () => {
 
                 {/* Draggable Divider Line (Hidden in Fullscreen) */}
                 {!isChartFullscreen && (
-                  <div
-                    id="chart-bottom-resizer"
-                    onMouseDown={handleResizeStart}
-                    onTouchStart={handleResizeStart}
-                    className="relative w-full h-[9px] -my-[4px] cursor-row-resize flex items-center select-none shrink-0 z-10 group bg-transparent"
-                  >
-                    {/* The ONLY visible element: ONE simple thin horizontal line */}
-                    <div className="w-full h-px bg-[#1B2537] group-hover:bg-[#2E405E] group-active:bg-cyan-500/70 transition-colors pointer-events-none" />
-                  </div>
+                  <ResizeDivider 
+                    containerRef={containerRef}
+                    chartHeightPercent={chartHeightPercent}
+                    onHeightChange={setChartHeightPercent}
+                    minChartPx={350}
+                    minBottomPx={160}
+                  />
                 )}
 
                 {/* Bottom Metrics Bar (Hidden in Fullscreen) */}
