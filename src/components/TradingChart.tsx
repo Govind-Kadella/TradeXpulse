@@ -11,9 +11,12 @@ import {
   ArrowRight,
   TrendingUp,
   TrendingDown,
-  Layers
+  Layers,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
-import { Candle } from '../types';
+import { Candle, ChartOverlayConfig } from '../types';
+import { ChartViewportEngine } from '../services/chartViewportEngine';
 
 export const TradingChart: React.FC = () => {
   const {
@@ -24,11 +27,14 @@ export const TradingChart: React.FC = () => {
     activeTimeframe,
     historicalAnalysis,
     connectionStatus,
+    marketDataStatus,
     viewport,
     setViewport,
     loadMoreHistory,
     returnToLive,
     isHistoricalView,
+    isChartFullscreen,
+    toggleChartFullscreen,
     zoomIn,
     zoomOut,
     resetView,
@@ -120,17 +126,17 @@ export const TradingChart: React.FC = () => {
     };
 
     const lastHistoricalCandleIndex = candles.length - 1;
-    const liveFirstVisibleIndex = (lastHistoricalCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
-    const isAtLiveEdge = viewport.mode === 'LIVE' || (viewport.firstVisibleIndex >= liveFirstVisibleIndex - 1.2);
+    const liveFirstVisibleIndex = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, viewport.visibleBarCount, viewport.rightOffsetBars);
+    const isAtLiveEdge = ChartViewportEngine.isAtLiveEdge(viewport, candles.length);
 
     const lastCandleX = candleToX(lastHistoricalCandleIndex);
     const liveCandle = candles[lastHistoricalCandleIndex];
     const liveClosePrice = liveCandle ? liveCandle.close : marketOverview.currentPrice;
 
-    // Forecast region horizontal boundaries (starts strictly at latest candle, ends inside plot)
+    // Forecast region horizontal boundaries (anchored strictly to latest candle in market space)
     const forecastStartX = lastCandleX + barSpacing * 0.5;
     const chartRightBoundary = paddingLeft + plotWidth;
-    const forecastRightBoundary = Math.min(chartRightBoundary - 14, candleToX(lastHistoricalCandleIndex + viewport.rightOffsetBars));
+    const forecastRightBoundary = candleToX(lastHistoricalCandleIndex + viewport.rightOffsetBars);
     const actualForecastWidth = Math.max(10, forecastRightBoundary - forecastStartX);
 
     // Calculate Price Range from visible historical candles
@@ -294,8 +300,9 @@ export const TradingChart: React.FC = () => {
       }
     }
 
-    // 5. FORECAST VISUALIZATION (Begins ONLY from current/latest candle when viewing live edge)
-    if (isAtLiveEdge && overlayConfig.showForecastPath) {
+    // 5. FORECAST VISUALIZATION (Anchored to market timeline; moves offscreen naturally when scrolling history)
+    const isForecastVisible = forecastStartX < chartRightBoundary && forecastRightBoundary > paddingLeft;
+    if (isForecastVisible && overlayConfig.showForecastPath) {
       // 5A. Vertical Divider Separator between Actual Market and Future Forecast
       ctx.strokeStyle = 'rgba(59, 130, 246, 0.45)';
       ctx.lineWidth = 1.2;
@@ -734,58 +741,74 @@ export const TradingChart: React.FC = () => {
     }
 
     // 5E. Support and Resistance Lines & Labels (Kept strictly inside the chart)
-    if (overlayConfig.showSupportResistance) {
-      // Resistance Line
-      const resY = priceToY(prediction.resistance);
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
-      ctx.lineWidth = 1.1;
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.moveTo(paddingLeft, resY);
-      ctx.lineTo(paddingLeft + plotWidth, resY);
-      ctx.stroke();
+    const showSup = overlayConfig.showSupportResistance || overlayConfig.showSR_Support;
+    const showRes = overlayConfig.showSupportResistance || overlayConfig.showSR_Resistance;
+    if (showSup || showRes) {
+      if (showRes) {
+        // Resistance Line
+        const resY = priceToY(prediction.resistance);
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, resY);
+        ctx.lineTo(paddingLeft + plotWidth, resY);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-      // Support Line
-      const supY = priceToY(prediction.support);
-      ctx.strokeStyle = 'rgba(16, 185, 129, 0.65)';
-      ctx.beginPath();
-      ctx.moveTo(paddingLeft, supY);
-      ctx.lineTo(paddingLeft + plotWidth, supY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+        // Position Resistance label cleanly on the LEFT
+        const resLabel = `RESISTANCE ${prediction.resistance.toFixed(marketOverview.digits)}`;
+        ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+        const resW = ctx.measureText(resLabel).width + 10;
+        ctx.fillStyle = '#0E1421';
+        ctx.strokeStyle = '#EF4444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(paddingLeft + 8, resY - 8, resW, 16, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fca5a5';
+        ctx.textAlign = 'left';
+        ctx.fillText(resLabel, paddingLeft + 13, resY + 3.5);
+      }
 
-      // Position Resistance and Support labels cleanly on the LEFT to prevent any collision with right TP labels
-      const resLabel = `RESISTANCE ${prediction.resistance.toFixed(marketOverview.digits)}`;
-      ctx.font = 'bold 8.5px JetBrains Mono, monospace';
-      const resW = ctx.measureText(resLabel).width + 10;
-      ctx.fillStyle = '#0E1421';
-      ctx.strokeStyle = '#EF4444';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(paddingLeft + 8, resY - 8, resW, 16, 3);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#fca5a5';
-      ctx.textAlign = 'left';
-      ctx.fillText(resLabel, paddingLeft + 13, resY + 3.5);
+      if (showSup) {
+        // Support Line
+        const supY = priceToY(prediction.support);
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.65)';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, supY);
+        ctx.lineTo(paddingLeft + plotWidth, supY);
+        ctx.stroke();
 
-      const supLabel = `STRONG SUPPORT ${prediction.support.toFixed(marketOverview.digits)}`;
-      const supW = ctx.measureText(supLabel).width + 10;
-      ctx.fillStyle = '#0E1421';
-      ctx.strokeStyle = '#10B981';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(paddingLeft + 8, supY - 8, supW, 16, 3);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#6ee7b7';
-      ctx.textAlign = 'left';
-      ctx.fillText(supLabel, paddingLeft + 13, supY + 3.5);
+        // Position Support label cleanly on the LEFT
+        const supLabel = `STRONG SUPPORT ${prediction.support.toFixed(marketOverview.digits)}`;
+        ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+        const supW = ctx.measureText(supLabel).width + 10;
+        ctx.fillStyle = '#0E1421';
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(paddingLeft + 8, supY - 8, supW, 16, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#6ee7b7';
+        ctx.textAlign = 'left';
+        ctx.fillText(supLabel, paddingLeft + 13, supY + 3.5);
+      }
     }
 
     // 5F. Liquidity Pools (PDH, PDL, Session Extremes, EQH/EQL)
-    if (prediction.liquidityLevels && prediction.liquidityLevels.length > 0 && overlayConfig.showHistoricalLevels) {
-      prediction.liquidityLevels.slice(0, 5).forEach((liq, lIdx) => {
+    if (prediction.liquidityLevels && prediction.liquidityLevels.length > 0) {
+      prediction.liquidityLevels.slice(0, 8).forEach((liq) => {
+        const isLiqActive = (overlayConfig.showMarketStructure && overlayConfig.showHistoricalLevels) ||
+          (liq.swept && overlayConfig.showLiq_Sweeps) ||
+          (liq.side === 'BUY_SIDE' && overlayConfig.showLiq_EQH) ||
+          (liq.side === 'SELL_SIDE' && overlayConfig.showLiq_EQL);
+
+        if (!isLiqActive) return;
+
         const liqY = priceToY(liq.price);
         if (liqY >= paddingTop && liqY <= paddingTop + plotHeight) {
           ctx.strokeStyle = liq.swept 
@@ -814,6 +837,298 @@ export const TradingChart: React.FC = () => {
           ctx.fillStyle = liq.side === 'BUY_SIDE' ? '#fcd34d' : '#7dd3fc';
           ctx.textAlign = 'right';
           ctx.fillText(labelText, paddingLeft + plotWidth - 14, liqY + 3);
+        }
+      });
+    }
+
+    // 5G. FAIR VALUE GAPS (FVG Zones) - Anchored strictly to market coordinates & displacement candles
+    if (prediction.fvgs && prediction.fvgs.length > 0) {
+      prediction.fvgs.forEach(fvg => {
+        const isBull = fvg.direction === 'BULLISH';
+        const isMitigated = fvg.status === 'FULLY_FILLED' || fvg.status === 'INVALIDATED';
+
+        const isFvgActive = (overlayConfig.showMarketStructure && overlayConfig.showFVG) ||
+          (isBull && overlayConfig.showFVG_Bullish) ||
+          (!isBull && overlayConfig.showFVG_Bearish) ||
+          (isMitigated && overlayConfig.showFVG_Mitigated);
+
+        if (!isFvgActive) return;
+
+        const startX = candleToX(fvg.candleIndex);
+        
+        // Accurate mitigation lifecycle: extend until mitigated bar, or forward to live market if unmitigated
+        const endBar = isMitigated
+          ? (fvg.mitigatedIndex !== undefined ? fvg.mitigatedIndex : Math.min(candles.length - 1, fvg.candleIndex + 6))
+          : Math.min(candles.length - 1, candles.length - 1);
+        
+        const endX = isMitigated ? candleToX(endBar) : paddingLeft + plotWidth;
+        const topY = priceToY(Math.max(fvg.upperPrice, fvg.lowerPrice));
+        const bottomY = priceToY(Math.min(fvg.upperPrice, fvg.lowerPrice));
+        const heightY = Math.max(3, Math.abs(bottomY - topY));
+        const widthX = Math.max(10, endX - startX);
+
+        if (startX <= paddingLeft + plotWidth && endX >= paddingLeft) {
+          if (isMitigated) {
+            // Mitigated / invalidated zone: muted opacity, dashed boundary to reduce visual clutter
+            ctx.fillStyle = isBull ? 'rgba(16, 185, 129, 0.04)' : 'rgba(239, 68, 68, 0.04)';
+            ctx.fillRect(startX, topY, widthX, heightY);
+
+            ctx.strokeStyle = isBull ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.22)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.strokeRect(startX, topY, widthX, heightY);
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = isBull ? 'rgba(52, 211, 153, 0.5)' : 'rgba(248, 113, 113, 0.5)';
+            ctx.font = '7px JetBrains Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(isBull ? 'Bull FVG (Mitigated)' : 'Bear FVG (Mitigated)', startX + 3, topY + 7);
+          } else {
+            // Active / fresh FVG zone
+            ctx.fillStyle = isBull ? 'rgba(16, 185, 129, 0.14)' : 'rgba(239, 68, 68, 0.14)';
+            ctx.fillRect(startX, topY, widthX, heightY);
+
+            ctx.strokeStyle = isBull ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.55)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(startX, topY, widthX, heightY);
+
+            // Midpoint line (Consequent Encroachment - 50% CE)
+            const midY = (topY + bottomY) / 2;
+            ctx.strokeStyle = isBull ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+            ctx.lineWidth = 0.8;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            ctx.moveTo(startX, midY);
+            ctx.lineTo(startX + widthX, midY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = isBull ? '#34d399' : '#f87171';
+            ctx.font = 'bold 7.5px JetBrains Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(isBull ? 'Bull FVG [50% CE]' : 'Bear FVG [50% CE]', startX + 3, topY + 8);
+          }
+        }
+      });
+    }
+
+    // 5H. ORDER BLOCKS (OB Zones) - Anchored strictly to the origin candle before breakout
+    if (prediction.orderBlocks && prediction.orderBlocks.length > 0) {
+      prediction.orderBlocks.forEach(ob => {
+        const isDemand = ob.direction === 'BULLISH';
+        const isInvalidated = ob.status === 'INVALIDATED';
+
+        const isObActive = (overlayConfig.showMarketStructure && overlayConfig.showOrderBlocks) ||
+          (isDemand && overlayConfig.showOB_Bullish) ||
+          (!isDemand && overlayConfig.showOB_Bearish) ||
+          (isInvalidated && overlayConfig.showOB_Mitigated);
+
+        if (!isObActive) return;
+
+        const startX = candleToX(ob.candleIndex);
+        
+        // Accurate mitigation lifecycle: extend until invalidation or forward to current price action
+        const endBar = isInvalidated
+          ? (ob.mitigatedIndex !== undefined ? ob.mitigatedIndex : Math.min(candles.length - 1, ob.candleIndex + 10))
+          : candles.length - 1;
+        
+        const endX = isInvalidated ? candleToX(endBar) : paddingLeft + plotWidth;
+        const topY = priceToY(ob.priceHigh);
+        const bottomY = priceToY(ob.priceLow);
+        const heightY = Math.max(4, Math.abs(bottomY - topY));
+        const widthX = Math.max(10, endX - startX);
+
+        if (startX <= paddingLeft + plotWidth && endX >= paddingLeft) {
+          if (isInvalidated) {
+            // Mitigated / invalidated OB
+            ctx.fillStyle = isDemand ? 'rgba(56, 189, 248, 0.04)' : 'rgba(245, 158, 11, 0.04)';
+            ctx.fillRect(startX, topY, widthX, heightY);
+
+            ctx.strokeStyle = isDemand ? 'rgba(56, 189, 248, 0.20)' : 'rgba(245, 158, 11, 0.20)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 2]);
+            ctx.strokeRect(startX, topY, widthX, heightY);
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = isDemand ? 'rgba(125, 211, 252, 0.5)' : 'rgba(252, 211, 77, 0.5)';
+            ctx.font = '7px JetBrains Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(isDemand ? 'Demand OB (Mitigated)' : 'Supply OB (Mitigated)', startX + 3, topY + 7);
+          } else {
+            // Active / tested order block
+            ctx.fillStyle = isDemand ? 'rgba(56, 189, 248, 0.15)' : 'rgba(245, 158, 11, 0.15)';
+            ctx.fillRect(startX, topY, widthX, heightY);
+
+            ctx.strokeStyle = isDemand ? 'rgba(56, 189, 248, 0.65)' : 'rgba(245, 158, 11, 0.65)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(startX, topY, widthX, heightY);
+
+            ctx.fillStyle = isDemand ? '#7dd3fc' : '#fcd34d';
+            ctx.font = 'bold 7.5px JetBrains Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(isDemand ? 'Demand OB' : 'Supply OB', startX + 3, topY + 8);
+          }
+        }
+      });
+    }
+
+    // 5I. MARKET STRUCTURE EVENTS (BOS / CHoCH / COC)
+    if (prediction.structureEvents && prediction.structureEvents.length > 0) {
+      prediction.structureEvents.forEach(ev => {
+        const isEventActive = overlayConfig.showMarketStructure ||
+          (ev.type === 'BOS' && overlayConfig.showMS_BOS) ||
+          (ev.type === 'CHoCH' && overlayConfig.showMS_CHoCH) ||
+          (ev.type === 'COC' && overlayConfig.showMS_CoC);
+
+        if (!isEventActive) return;
+
+        if (ev.type === 'BOS' || ev.type === 'CHoCH' || ev.type === 'COC') {
+          // Anchored strictly: originIndex is the swing point that was broken, candleIndex is the breakout candle!
+          const originIdx = ev.originIndex !== undefined ? ev.originIndex : Math.max(0, ev.candleIndex - 6);
+          const originX = candleToX(originIdx);
+          const breakX = candleToX(ev.candleIndex);
+          const evY = priceToY(ev.price);
+
+          if (breakX >= paddingLeft - 20 && originX <= paddingLeft + plotWidth + 20 && evY >= paddingTop && evY <= paddingTop + plotHeight) {
+            const isBull = ev.direction === 'BULLISH';
+            const strokeColor = ev.type === 'CHoCH' 
+              ? 'rgba(168, 85, 247, 0.85)' 
+              : (isBull ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.85)');
+            
+            // Structural horizontal line from the swing high/low to breakout
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            ctx.moveTo(originX, evY);
+            ctx.lineTo(breakX, evY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Origin pivot anchor tick/dot
+            ctx.fillStyle = strokeColor;
+            ctx.beginPath();
+            ctx.arc(originX, evY, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Breakout label pill
+            const label = ev.type === 'CHoCH' ? 'CHoCH' : (ev.type === 'COC' ? 'CoC' : (isBull ? '+BOS' : '-BOS'));
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            const textW = ctx.measureText(label).width + 6;
+            ctx.fillStyle = '#0E1421';
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(breakX - textW / 2, evY - 6, textW, 12, 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = ev.type === 'CHoCH' ? '#d8b4fe' : (isBull ? '#6ee7b7' : '#fca5a5');
+            ctx.textAlign = 'center';
+            ctx.fillText(label, breakX, evY + 3);
+          }
+        }
+      });
+    }
+
+    // Structure Points (HH, HL, LH, LL, Swings)
+    if (prediction.structurePoints && prediction.structurePoints.length > 0) {
+      prediction.structurePoints.forEach(pt => {
+        const isPointActive = overlayConfig.showMarketStructure ||
+          ((pt.type === 'SWING_HIGH' || pt.type === 'SWING_LOW') && overlayConfig.showMS_Swings) ||
+          ((pt.type === 'HH' || pt.type === 'HL') && overlayConfig.showMS_HH_HL) ||
+          ((pt.type === 'LH' || pt.type === 'LL') && overlayConfig.showMS_LH_LL);
+
+        if (!isPointActive) return;
+
+        if (pt.index >= startBar && pt.index <= endBar) {
+          const ptX = candleToX(pt.index);
+          const ptY = priceToY(pt.price);
+          const isHigh = pt.type === 'HH' || pt.type === 'LH' || pt.type === 'SWING_HIGH';
+
+          if (ptY >= paddingTop && ptY <= paddingTop + plotHeight) {
+            ctx.font = 'bold 7.5px JetBrains Mono, monospace';
+            const ptLabel = pt.type === 'SWING_HIGH' ? 'SH' : (pt.type === 'SWING_LOW' ? 'SL' : pt.type);
+            const ptW = ctx.measureText(ptLabel).width + 5;
+            const badgeY = isHigh ? ptY - 14 : ptY + 5;
+
+            ctx.fillStyle = '#0E1421';
+            ctx.strokeStyle = isHigh ? '#38bdf8' : '#a855f7';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.roundRect(ptX - ptW / 2, badgeY, ptW, 11, 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = isHigh ? '#7dd3fc' : '#d8b4fe';
+            ctx.textAlign = 'center';
+            ctx.fillText(ptLabel, ptX, badgeY + 8);
+          }
+        }
+      });
+    }
+
+    // 5J. CANDLESTICK PATTERN LABELS - Strictly verified against actual OHLC formula
+    if (prediction.patterns && prediction.patterns.length > 0) {
+      const patternKeyToConfig: Record<string, keyof ChartOverlayConfig> = {
+        DOJI: 'showPatternDoji',
+        HAMMER: 'showPatternHammer',
+        INVERTED_HAMMER: 'showPatternInvertedHammer',
+        SHOOTING_STAR: 'showPatternShootingStar',
+        HANGING_MAN: 'showPatternHangingMan',
+        PIN_BAR: 'showPatternPinBar',
+        MARUBOZU: 'showPatternMarubozu',
+        SPINNING_TOP: 'showPatternSpinningTop',
+        BULLISH_ENGULFING: 'showPatternBullishEngulfing',
+        BEARISH_ENGULFING: 'showPatternBearishEngulfing',
+        BULLISH_HARAMI: 'showPatternBullishHarami',
+        BEARISH_HARAMI: 'showPatternBearishHarami',
+        PIERCING_LINE: 'showPatternPiercingLine',
+        DARK_CLOUD_COVER: 'showPatternDarkCloudCover',
+        TWEEZER_TOP: 'showPatternTweezerTop',
+        TWEEZER_BOTTOM: 'showPatternTweezerBottom',
+        MORNING_STAR: 'showPatternMorningStar',
+        EVENING_STAR: 'showPatternEveningStar',
+        THREE_WHITE_SOLDIERS: 'showPatternThreeWhiteSoldiers',
+        THREE_BLACK_CROWS: 'showPatternThreeBlackCrows',
+        THREE_INSIDE_UP: 'showPatternThreeInsideUp',
+        THREE_INSIDE_DOWN: 'showPatternThreeInsideDown',
+        THREE_OUTSIDE_UP: 'showPatternThreeOutsideUp',
+        THREE_OUTSIDE_DOWN: 'showPatternThreeOutsideDown',
+      };
+
+      prediction.patterns.forEach(pat => {
+        const configKey = pat.patternKey ? patternKeyToConfig[pat.patternKey] : undefined;
+        const isPatternEnabled = configKey ? !!overlayConfig[configKey] : false;
+
+        if (!isPatternEnabled && !overlayConfig.showCandlePatterns) return;
+
+        if (pat.candleIndex >= startBar && pat.candleIndex <= endBar) {
+          const c = candles[pat.candleIndex];
+          if (!c) return;
+          const x = candleToX(pat.candleIndex);
+          const isBull = pat.direction === 'BULLISH';
+          const isBear = pat.direction === 'BEARISH';
+          
+          // Place label above high for bearish/doji, below low for bullish
+          const targetY = isBull ? priceToY(c.low) + 9 : priceToY(c.high) - 9;
+          if (targetY >= paddingTop && targetY <= paddingTop + plotHeight) {
+            const shortName = pat.name.replace(' Expansion', '').replace(' Warning', '').replace(' Reversal', '');
+            ctx.font = 'bold 7px JetBrains Mono, monospace';
+            const patW = ctx.measureText(shortName).width + 6;
+            
+            ctx.fillStyle = 'rgba(14, 20, 33, 0.9)';
+            ctx.strokeStyle = isBull ? '#10b981' : isBear ? '#ef4444' : '#94a3b8';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.roundRect(x - patW / 2, targetY - 5, patW, 10, 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = isBull ? '#a7f3d0' : isBear ? '#fecaca' : '#e2e8f0';
+            ctx.textAlign = 'center';
+            ctx.fillText(shortName, x, targetY + 2.5);
+          }
         }
       });
     }
@@ -1026,9 +1341,7 @@ export const TradingChart: React.FC = () => {
       setHoveredIndex(null);
     }
 
-    // Professional 1:1 direct pointer drag interaction:
-    // Dragging RIGHT (e.clientX > dragStartX) -> moves candles right, revealing older history -> firstVisibleIndex decreases
-    // Dragging LEFT (e.clientX < dragStartX) -> moves candles left, revealing newer candles -> firstVisibleIndex increases
+    // Professional 1:1 direct pointer drag interaction using ChartViewportEngine
     if (isDraggingRef.current) {
       const now = performance.now();
       const dt = Math.max(1, now - lastDragTimeRef.current);
@@ -1038,32 +1351,17 @@ export const TradingChart: React.FC = () => {
       lastDragTimeRef.current = now;
 
       const totalDx = e.clientX - dragStartXRef.current;
-      const barsMoved = totalDx / barSpacing;
-      let targetFirst = dragStartFirstVisibleRef.current - barsMoved;
+      const updated = ChartViewportEngine.applyPan(
+        viewport,
+        dragStartFirstVisibleRef.current,
+        totalDx,
+        plotWidth,
+        candles.length
+      );
+      setViewport(updated);
 
-      const lastCandleIndex = candles.length - 1;
-      const liveFirst = (lastCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
-
-      // Clean snap to live edge if dragged near the current live bar
-      if (targetFirst >= liveFirst - 0.8) {
-        setViewport(prev => ({
-          ...prev,
-          firstVisibleIndex: liveFirst,
-          mode: 'LIVE',
-          isFollowingLive: true
-        }));
-      } else {
-        setViewport(prev => ({
-          ...prev,
-          firstVisibleIndex: targetFirst,
-          mode: 'HISTORICAL',
-          isFollowingLive: false
-        }));
-
-        // Seamlessly prepend older bars if scrolled near left edge
-        if (targetFirst < 15) {
-          loadMoreHistory();
-        }
+      if (updated.firstVisibleIndex < 15) {
+        loadMoreHistory();
       }
     }
   };
@@ -1080,7 +1378,7 @@ export const TradingChart: React.FC = () => {
       const runMomentum = (now: number) => {
         const dt = Math.min(32, now - lastTime);
         lastTime = now;
-        vel *= 0.92;
+        vel *= 0.88;
 
         if (Math.abs(vel) > 0.04) {
           const paddingLeft = 14;
@@ -1090,11 +1388,10 @@ export const TradingChart: React.FC = () => {
           const barsShift = (vel * dt) / barSpacing;
 
           setViewport(prev => {
-            const lastCandleIndex = candles.length - 1;
-            const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - prev.visibleBarCount;
+            const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, prev.visibleBarCount, prev.rightOffsetBars);
             const nextFirst = prev.firstVisibleIndex - barsShift;
 
-            if (nextFirst >= liveFirst - 0.8) {
+            if (nextFirst >= liveFirst - ChartViewportEngine.LIVE_EDGE_SNAP_TOLERANCE) {
               stopMomentum();
               return {
                 ...prev,
@@ -1179,30 +1476,17 @@ export const TradingChart: React.FC = () => {
 
       if (isDraggingRef.current) {
         const totalDx = t.clientX - dragStartXRef.current;
-        const barsMoved = totalDx / barSpacing;
-        let targetFirst = dragStartFirstVisibleRef.current - barsMoved;
+        const updated = ChartViewportEngine.applyPan(
+          viewport,
+          dragStartFirstVisibleRef.current,
+          totalDx,
+          plotWidth,
+          candles.length
+        );
+        setViewport(updated);
 
-        const lastCandleIndex = candles.length - 1;
-        const liveFirst = (lastCandleIndex + viewport.rightOffsetBars) - viewport.visibleBarCount;
-
-        if (targetFirst >= liveFirst - 0.8) {
-          setViewport(prev => ({
-            ...prev,
-            firstVisibleIndex: liveFirst,
-            mode: 'LIVE',
-            isFollowingLive: true
-          }));
-        } else {
-          setViewport(prev => ({
-            ...prev,
-            firstVisibleIndex: targetFirst,
-            mode: 'HISTORICAL',
-            isFollowingLive: false
-          }));
-
-          if (targetFirst < 15) {
-            loadMoreHistory();
-          }
+        if (updated.firstVisibleIndex < 15) {
+          loadMoreHistory();
         }
       }
     } else if (e.touches.length === 2 && touchDistanceRef.current !== null) {
@@ -1214,14 +1498,13 @@ export const TradingChart: React.FC = () => {
       if (Math.abs(dist - touchDistanceRef.current) > 4) {
         const anchorRatio = touchAnchorRatioRef.current;
         setViewport(prev => {
-          const newVisible = Math.max(16, Math.min(240, Math.round(prev.visibleBarCount * (ratio > 1 ? 1.05 : 0.95))));
+          const newVisible = Math.max(ChartViewportEngine.MIN_VISIBLE_BARS, Math.min(ChartViewportEngine.MAX_VISIBLE_BARS, Math.round(prev.visibleBarCount * (ratio > 1 ? 1.05 : 0.95))));
           const anchorIndex = prev.firstVisibleIndex + anchorRatio * prev.visibleBarCount;
           let newFirst = anchorIndex - anchorRatio * newVisible;
 
-          const lastCandleIndex = candles.length - 1;
-          const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - newVisible;
+          const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, newVisible, prev.rightOffsetBars);
 
-          if (prev.isFollowingLive || newFirst >= liveFirst - 1.0) {
+          if (prev.isFollowingLive || newFirst >= liveFirst - ChartViewportEngine.LIVE_EDGE_SNAP_TOLERANCE) {
             return {
               ...prev,
               visibleBarCount: newVisible,
@@ -1250,80 +1533,77 @@ export const TradingChart: React.FC = () => {
     touchDistanceRef.current = null;
   };
 
-  // Mouse wheel: horizontal pan on deltaX / shiftKey; cursor-centered zoom on vertical wheel
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    stopMomentum();
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  // Dedicated non-passive wheel listener attached to canvas element
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const mouseX = e.clientX - rect.left;
-    const paddingLeft = 14;
-    const paddingRight = 85;
-    const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      stopMomentum();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const paddingLeft = 14;
+      const paddingRight = 85;
+      const plotWidth = canvasDimensions.width - paddingRight - paddingLeft;
 
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
-      // Horizontal swipe pan
-      const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-      const barSpacing = plotWidth / viewport.visibleBarCount;
-      const barsShift = (delta * 0.45) / barSpacing;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
+        // Horizontal swipe pan
+        const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+        const barSpacing = plotWidth / viewport.visibleBarCount;
+        const barsShift = (delta * 0.45) / barSpacing;
 
-      setViewport(prev => {
-        const lastCandleIndex = candles.length - 1;
-        const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - prev.visibleBarCount;
-        const nextFirst = prev.firstVisibleIndex + barsShift;
+        setViewport(prev => {
+          const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, prev.visibleBarCount, prev.rightOffsetBars);
+          const nextFirst = prev.firstVisibleIndex + barsShift;
 
-        if (nextFirst >= liveFirst - 0.8) {
+          if (nextFirst >= liveFirst - ChartViewportEngine.LIVE_EDGE_SNAP_TOLERANCE) {
+            return {
+              ...prev,
+              firstVisibleIndex: liveFirst,
+              mode: 'LIVE',
+              isFollowingLive: true
+            };
+          }
+          if (nextFirst < 15) {
+            loadMoreHistory();
+          }
           return {
             ...prev,
-            firstVisibleIndex: liveFirst,
-            mode: 'LIVE',
-            isFollowingLive: true
+            firstVisibleIndex: nextFirst,
+            mode: 'HISTORICAL',
+            isFollowingLive: false
           };
-        }
-        if (nextFirst < 15) {
-          loadMoreHistory();
-        }
-        return {
-          ...prev,
-          firstVisibleIndex: nextFirst,
-          mode: 'HISTORICAL',
-          isFollowingLive: false
-        };
-      });
-    } else {
-      // Cursor-anchored Zoom (the candle under the cursor stays fixed in place)
-      const anchorRatio = Math.max(0.05, Math.min(0.95, (mouseX - paddingLeft) / plotWidth));
-      const zoomFactor = e.deltaY > 0 ? 1.10 : 0.91;
+        });
+      } else {
+        // Cursor-anchored Zoom (the candle under the cursor stays fixed in place)
+        const zoomFactor = e.deltaY > 0 ? 1.09 : 0.91;
+        setViewport(prev => {
+          return ChartViewportEngine.applyZoom(
+            prev,
+            zoomFactor,
+            mouseX,
+            {
+              width: canvasDimensions.width,
+              height: canvasDimensions.height,
+              paddingLeft: 14,
+              paddingRight: 85,
+              paddingTop: 32,
+              paddingBottom: 26,
+              plotWidth,
+              plotHeight: canvasDimensions.height - 32 - 26
+            },
+            candles.length
+          );
+        });
+      }
+    };
 
-      setViewport(prev => {
-        const newVisible = Math.max(16, Math.min(240, Math.round(prev.visibleBarCount * zoomFactor)));
-        const anchorIndex = prev.firstVisibleIndex + anchorRatio * prev.visibleBarCount;
-        let newFirst = anchorIndex - anchorRatio * newVisible;
-
-        const lastCandleIndex = candles.length - 1;
-        const liveFirst = (lastCandleIndex + prev.rightOffsetBars) - newVisible;
-
-        if (prev.isFollowingLive || newFirst >= liveFirst - 1.0) {
-          return {
-            ...prev,
-            visibleBarCount: newVisible,
-            firstVisibleIndex: liveFirst,
-            mode: 'LIVE',
-            isFollowingLive: true
-          };
-        }
-
-        return {
-          ...prev,
-          visibleBarCount: newVisible,
-          firstVisibleIndex: newFirst,
-          mode: 'HISTORICAL',
-          isFollowingLive: false
-        };
-      });
-    }
-  };
+    canvas.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', onWheelNative);
+    };
+  }, [canvasDimensions, candles.length, loadMoreHistory, setViewport, viewport.visibleBarCount]);
 
   // Active or hovered candle OHLC metrics & candle anatomy to display on the HUD
   const activeInspectionCandle = hoveredCandle || visibleCandles[visibleCandles.length - 1] || candles[candles.length - 1];
@@ -1401,15 +1681,15 @@ export const TradingChart: React.FC = () => {
       {/* 1. Top Chart Header & Live OHLC Inspection HUD Bar */}
       <div className="absolute top-2.5 left-3.5 z-20 flex flex-wrap items-center gap-2 select-none pointer-events-none">
         {/* Symbol & Price Badge */}
-        <div className="flex items-center gap-2 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-3 py-1.5 rounded shadow-lg">
+        <div className="flex items-center gap-2 bg-[#0B101D]/95 backdrop-blur-md border border-[#1E293B] px-3 py-1.5 rounded shadow-lg">
           <span className="font-black text-sm tracking-wider text-white">
             {marketOverview.symbol}
           </span>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1D283D] text-blue-400 font-bold border border-blue-500/30">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-400 font-bold border border-cyan-500/30">
             {activeTimeframe}
           </span>
-          <div className="h-3 w-px bg-[#1F2937] mx-0.5" />
-          <span className="text-xs font-mono font-bold text-blue-400">
+          <div className="h-3 w-px bg-[#1E293B] mx-0.5" />
+          <span className="text-xs font-mono font-bold text-white">
             {marketOverview.currentPrice.toFixed(marketOverview.digits)}
           </span>
           <span className={`text-[11px] font-mono font-bold ${marketOverview.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -1419,18 +1699,18 @@ export const TradingChart: React.FC = () => {
 
         {/* OHLC Candlestick Inspection Ribbon */}
         {activeInspectionCandle && (
-          <div className="hidden md:flex items-center gap-2 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-3 py-1.5 rounded shadow-lg text-[10px] font-mono">
+          <div className="hidden md:flex items-center gap-2 bg-[#0B101D]/95 backdrop-blur-md border border-[#1E293B] px-3 py-1.5 rounded shadow-lg text-[10px] font-mono">
             <span className="text-slate-500 font-semibold">
               {hoveredCandle ? 'INSPECT' : 'LATEST'}:
             </span>
-            <span className="text-slate-400">O: <strong className="text-slate-200">{activeInspectionCandle.open.toFixed(marketOverview.digits)}</strong></span>
-            <span className="text-slate-400">H: <strong className="text-slate-200">{activeInspectionCandle.high.toFixed(marketOverview.digits)}</strong></span>
-            <span className="text-slate-400">L: <strong className="text-slate-200">{activeInspectionCandle.low.toFixed(marketOverview.digits)}</strong></span>
-            <span className="text-slate-400">C: <strong className={isInspectionBull ? 'text-emerald-400' : 'text-red-400'}>{activeInspectionCandle.close.toFixed(marketOverview.digits)}</strong></span>
+            <span className="text-slate-400">O <strong className="text-slate-200">{activeInspectionCandle.open.toFixed(marketOverview.digits)}</strong></span>
+            <span className="text-slate-400">H <strong className="text-slate-200">{activeInspectionCandle.high.toFixed(marketOverview.digits)}</strong></span>
+            <span className="text-slate-400">L <strong className="text-slate-200">{activeInspectionCandle.low.toFixed(marketOverview.digits)}</strong></span>
+            <span className="text-slate-400">C <strong className={isInspectionBull ? 'text-emerald-400' : 'text-red-400'}>{activeInspectionCandle.close.toFixed(marketOverview.digits)}</strong></span>
             <span className={`font-bold ${isInspectionBull ? 'text-emerald-400' : 'text-red-400'}`}>
               ({candleChange >= 0 ? '+' : ''}{candleChangePercent}%)
             </span>
-            <span className="text-slate-500">Vol: <strong className="text-slate-300">{activeInspectionCandle.volume.toLocaleString()}</strong></span>
+            <span className="text-slate-500">Vol <strong className="text-slate-300">{activeInspectionCandle.volume >= 1000 ? `${(activeInspectionCandle.volume / 1000).toFixed(2)}K` : activeInspectionCandle.volume}</strong></span>
           </div>
         )}
 
@@ -1445,7 +1725,7 @@ export const TradingChart: React.FC = () => {
         )}
 
         {/* Technical Confluence HUD (Pattern, BOS, CHoCH, FVG, Liquidity, OB, S/R) */}
-        {activeInspectionCandle && candleConfluence && (
+        {overlayConfig.showMarketStructure && activeInspectionCandle && candleConfluence && (
           <div className="hidden 2xl:flex items-center gap-1.5 bg-[#0E1421]/95 backdrop-blur-md border border-[#1F2937] px-2.5 py-1.5 rounded shadow-lg text-[10px] font-mono">
             {candleConfluence.pattern && (
               <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
@@ -1492,22 +1772,10 @@ export const TradingChart: React.FC = () => {
               -{Math.max(1, Math.round(((candles.length - 1 + viewport.rightOffsetBars) - viewport.visibleBarCount) - viewport.firstVisibleIndex))} BARS
             </span>
           </div>
-        ) : connectionStatus === 'LIVE' ? (
-          <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-emerald-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
-            <span className="font-bold">LIVE MARKET</span>
-            <span className="text-[9px] text-emerald-400/70 font-semibold">(Follow Active)</span>
-          </div>
-        ) : connectionStatus === 'DEMO' ? (
-          <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-amber-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
-            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-            <span className="font-bold">DEMO (SIMULATED)</span>
-            <span className="text-[9px] text-amber-300/70 font-semibold">Feed Ready</span>
-          </div>
         ) : (
-          <div className="hidden sm:flex items-center gap-1.5 bg-[#0E1421]/95 border border-blue-500/40 px-2.5 py-1.5 rounded text-[11px] font-mono text-blue-400">
-            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
-            <span className="font-bold">{connectionStatus}</span>
+          <div className="flex items-center gap-1.5 bg-[#0B101D]/95 border border-emerald-500/50 px-2.5 py-1.5 rounded text-[11px] font-mono text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.2)]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] inline-block" />
+            <span className="font-extrabold tracking-wider">LIVE</span>
           </div>
         )}
       </div>
@@ -1548,6 +1816,18 @@ export const TradingChart: React.FC = () => {
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
+        <button
+          id="chart-fullscreen-toggle-btn"
+          onClick={toggleChartFullscreen}
+          title={isChartFullscreen ? "Exit Fullscreen (Esc)" : "Toggle Fullscreen Chart"}
+          className={`p-1.5 rounded transition-colors cursor-pointer ${
+            isChartFullscreen 
+              ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40' 
+              : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+          }`}
+        >
+          {isChartFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
       {/* 3. RETURN TO LIVE Floating Button (Shown when viewing historical candles) */}
@@ -1582,14 +1862,13 @@ export const TradingChart: React.FC = () => {
           setHoveredCandle(null);
           setHoveredIndex(null);
         }}
-        onWheel={handleWheel}
         className={`w-full h-full block ${isDragging ? 'cursor-grabbing' : 'cursor-crosshair'}`}
       />
 
       {/* 5. Watermark Note */}
       <div className="absolute bottom-3 right-24 z-20 pointer-events-none flex flex-col items-end gap-0.5 opacity-50">
         <div className="text-[9px] text-slate-500 font-mono">
-          TradeXpulse • Twelve Data Real-Time Stream • Drag to pan • Scroll to zoom
+          TradeXpulse • {marketDataStatus.provider} • Drag to pan • Scroll to zoom
         </div>
       </div>
     </div>

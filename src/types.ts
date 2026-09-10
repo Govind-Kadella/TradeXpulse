@@ -2,6 +2,15 @@ export type MarketSymbol = 'XAUUSD' | 'EURJPY' | 'EURUSD' | 'GBPUSD';
 
 export type Timeframe = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D1';
 
+export const VALID_TIMEFRAMES: readonly Timeframe[] = ['M1', 'M5', 'M15', 'H1', 'H4', 'D1'] as const;
+
+export function sanitizeTimeframe(tf: any): Timeframe {
+  if (tf && VALID_TIMEFRAMES.includes(tf as Timeframe)) {
+    return tf as Timeframe;
+  }
+  return 'M5';
+}
+
 export type BiasType = 'BULLISH' | 'BEARISH' | 'NO TRADE';
 
 export type LimitType = 'BUY LIMIT' | 'SELL LIMIT' | 'WAIT';
@@ -192,6 +201,32 @@ export interface MarketDataStatusInfo {
   isStale?: boolean;
 }
 
+export type CandlePatternKey =
+  | 'DOJI'
+  | 'HAMMER'
+  | 'INVERTED_HAMMER'
+  | 'SHOOTING_STAR'
+  | 'HANGING_MAN'
+  | 'PIN_BAR'
+  | 'MARUBOZU'
+  | 'SPINNING_TOP'
+  | 'BULLISH_ENGULFING'
+  | 'BEARISH_ENGULFING'
+  | 'BULLISH_HARAMI'
+  | 'BEARISH_HARAMI'
+  | 'PIERCING_LINE'
+  | 'DARK_CLOUD_COVER'
+  | 'TWEEZER_TOP'
+  | 'TWEEZER_BOTTOM'
+  | 'MORNING_STAR'
+  | 'EVENING_STAR'
+  | 'THREE_WHITE_SOLDIERS'
+  | 'THREE_BLACK_CROWS'
+  | 'THREE_INSIDE_UP'
+  | 'THREE_INSIDE_DOWN'
+  | 'THREE_OUTSIDE_UP'
+  | 'THREE_OUTSIDE_DOWN';
+
 export interface ChartOverlayConfig {
   showForecastPath: boolean;
   showEntryZone: boolean;
@@ -204,6 +239,64 @@ export interface ChartOverlayConfig {
   showMarketStructure: boolean;
   showFVG: boolean;
   showOrderBlocks: boolean;
+  showCandlePatterns?: boolean;
+
+  // Single-Candle Price Action
+  showPatternDoji: boolean;
+  showPatternHammer: boolean;
+  showPatternInvertedHammer: boolean;
+  showPatternShootingStar: boolean;
+  showPatternHangingMan: boolean;
+  showPatternPinBar: boolean;
+  showPatternMarubozu: boolean;
+  showPatternSpinningTop: boolean;
+
+  // Two-Candle Patterns
+  showPatternBullishEngulfing: boolean;
+  showPatternBearishEngulfing: boolean;
+  showPatternBullishHarami: boolean;
+  showPatternBearishHarami: boolean;
+  showPatternPiercingLine: boolean;
+  showPatternDarkCloudCover: boolean;
+  showPatternTweezerTop: boolean;
+  showPatternTweezerBottom: boolean;
+
+  // Multi-Candle Patterns
+  showPatternMorningStar: boolean;
+  showPatternEveningStar: boolean;
+  showPatternThreeWhiteSoldiers: boolean;
+  showPatternThreeBlackCrows: boolean;
+  showPatternThreeInsideUp: boolean;
+  showPatternThreeInsideDown: boolean;
+  showPatternThreeOutsideUp: boolean;
+  showPatternThreeOutsideDown: boolean;
+
+  // Market Structure
+  showMS_BOS: boolean;
+  showMS_CHoCH: boolean;
+  showMS_CoC: boolean;
+  showMS_Swings: boolean;
+  showMS_HH_HL: boolean;
+  showMS_LH_LL: boolean;
+
+  // Fair Value Gaps (FVG)
+  showFVG_Bullish: boolean;
+  showFVG_Bearish: boolean;
+  showFVG_Mitigated: boolean;
+
+  // Order Blocks (OB)
+  showOB_Bullish: boolean;
+  showOB_Bearish: boolean;
+  showOB_Mitigated: boolean;
+
+  // Liquidity
+  showLiq_Sweeps: boolean;
+  showLiq_EQH: boolean;
+  showLiq_EQL: boolean;
+
+  // Support / Resistance
+  showSR_Support: boolean;
+  showSR_Resistance: boolean;
 }
 
 /**
@@ -351,6 +444,7 @@ export interface CandleMetrics {
 
 export interface CandlePattern {
   name: string;
+  patternKey?: CandlePatternKey;
   type: 'SINGLE' | 'TWO_CANDLE' | 'MULTI_CANDLE';
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   timeframe: Timeframe;
@@ -361,6 +455,7 @@ export interface CandlePattern {
   strength: 'HIGH' | 'MEDIUM' | 'LOW';
   confirmation: string;
   invalidation: string;
+  diagnostic?: string;
 }
 
 export interface MarketStructurePoint {
@@ -373,11 +468,13 @@ export interface MarketStructurePoint {
 
 export interface MarketStructureEvent {
   id: string;
-  type: 'BOS' | 'CHoCH' | 'MSS' | 'LIQUIDITY_SWEEP' | 'EQH' | 'EQL' | 'DISPLACEMENT' | 'RETEST' | 'REJECTION' | 'ABSORPTION' | 'INDUCEMENT';
+  type: 'BOS' | 'CHoCH' | 'COC' | 'MSS' | 'LIQUIDITY_SWEEP' | 'EQH' | 'EQL' | 'DISPLACEMENT' | 'RETEST' | 'REJECTION' | 'ABSORPTION' | 'INDUCEMENT';
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   price: number;
   timestamp: number;
   candleIndex: number;
+  originIndex?: number;
+  originPrice?: number;
   timeframe: Timeframe;
   strength: 'HIGH' | 'MEDIUM' | 'LOW';
   description: string;
@@ -394,6 +491,7 @@ export interface FVGZone {
   lowerPrice: number;
   midPrice: number;
   candleIndex: number;
+  mitigatedIndex?: number;
   createdAt: number;
   timeframe: Timeframe;
   status: 'UNTOUCHED' | 'PARTIALLY_FILLED' | 'FULLY_FILLED' | 'REJECTED' | 'INVALIDATED';
@@ -411,6 +509,7 @@ export interface OrderBlockZone {
   strength: 'HIGH' | 'MEDIUM' | 'LOW';
   createdAt: number;
   candleIndex: number;
+  mitigatedIndex?: number;
   status: 'UNMITIGATED' | 'TESTED' | 'BREACHED' | 'INVALIDATED';
   contextDetails: string;
 }

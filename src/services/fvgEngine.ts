@@ -40,7 +40,7 @@ export class FvgEngine {
           };
 
           // Track interaction across subsequent candles (i + 1 to end)
-          this.trackFvgLifecycle(fvg, candles.slice(i + 1));
+          this.trackFvgLifecycle(fvg, candles, i + 1);
           fvgs.push(fvg);
         }
       }
@@ -69,7 +69,7 @@ export class FvgEngine {
           };
 
           // Track interaction across subsequent candles (i + 1 to end)
-          this.trackFvgLifecycle(fvg, candles.slice(i + 1));
+          this.trackFvgLifecycle(fvg, candles, i + 1);
           fvgs.push(fvg);
         }
       }
@@ -81,13 +81,13 @@ export class FvgEngine {
   /**
    * Simulates future candles entering or validating the FVG zone
    */
-  private static trackFvgLifecycle(fvg: FVGZone, subsequentCandles: Candle[]): void {
-    if (subsequentCandles.length === 0) return;
+  private static trackFvgLifecycle(fvg: FVGZone, allCandles: Candle[], startIndex: number): void {
+    if (startIndex >= allCandles.length) return;
 
     const gapHeight = Math.max(0.0001, fvg.upperPrice - fvg.lowerPrice);
 
-    for (let i = 0; i < subsequentCandles.length; i++) {
-      const c = subsequentCandles[i];
+    for (let i = startIndex; i < allCandles.length; i++) {
+      const c = allCandles[i];
 
       if (fvg.type === 'BULLISH_FVG') {
         // Price pulls back into bullish FVG from above
@@ -101,14 +101,18 @@ export class FvgEngine {
             // Decisive close through the bottom -> Invalidated
             fvg.status = 'INVALIDATED';
             fvg.fillPercentage = 100;
+            fvg.mitigatedIndex = i;
             break;
           } else if (c.low <= fvg.lowerPrice) {
             fvg.status = 'FULLY_FILLED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           } else if (c.low <= fvg.midPrice && c.close > fvg.midPrice) {
             // Mitigated consequent encroachment with clean wick rejection!
             fvg.status = 'REJECTED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           } else {
             fvg.status = 'PARTIALLY_FILLED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           }
         }
       } else {
@@ -122,14 +126,18 @@ export class FvgEngine {
             // Decisive close through the top -> Invalidated
             fvg.status = 'INVALIDATED';
             fvg.fillPercentage = 100;
+            fvg.mitigatedIndex = i;
             break;
           } else if (c.high >= fvg.upperPrice) {
             fvg.status = 'FULLY_FILLED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           } else if (c.high >= fvg.midPrice && c.close < fvg.midPrice) {
             // Mitigated 50% midpoint with strong bearish wick rejection!
             fvg.status = 'REJECTED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           } else {
             fvg.status = 'PARTIALLY_FILLED';
+            if (!fvg.mitigatedIndex) fvg.mitigatedIndex = i;
           }
         }
       }

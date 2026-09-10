@@ -26,7 +26,7 @@ export class RealtimeMarketClient {
   private ws: WebSocket | null = null;
   private activeSymbol: MarketSymbol = 'XAUUSD';
   private connectionStatus: ConnectionStatus = 'CONNECTING';
-  private providerName: string = 'Twelve Data';
+  private providerName: string = 'Demo';
   private isRealtime: boolean = false;
   private lastTickTime: number = 0;
   private reconnectAttempts: number = 0;

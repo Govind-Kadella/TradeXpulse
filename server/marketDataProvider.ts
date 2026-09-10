@@ -1076,7 +1076,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
   public getStatus() {
     return {
       status: this.status,
-      provider: this.isUsingDemoFallback ? 'Twelve Data (Demo Mode)' : 'Twelve Data',
+      provider: this.isUsingDemoFallback ? 'Demo' : 'Twelve Data',
       isRealtime: this.status === 'LIVE',
       lastTickTime: this.lastTickTime,
       statusDetails: this.statusDetails
@@ -1089,7 +1089,7 @@ export class LiveTwelveDataProvider implements MarketDataProvider {
     const lastCandle = m5Candles.length > 0 ? m5Candles[m5Candles.length - 1] : null;
 
     return {
-      provider: this.isUsingDemoFallback ? 'Twelve Data (Demo Mode)' : 'Twelve Data',
+      provider: this.isUsingDemoFallback ? 'Demo' : 'Twelve Data',
       symbol,
       providerSymbol: meta.providerSymbol,
       connection: this.isConnected ? 'CONNECTED' : (this.isConnecting ? 'CONNECTING' : 'DISCONNECTED'),
@@ -1372,7 +1372,7 @@ export class MassiveProvider implements MarketDataProvider {
   public getStatus() {
     return {
       status: this.status,
-      provider: this.isUsingDemoFallback ? 'Massive (Demo Mode)' : 'Massive',
+      provider: this.isUsingDemoFallback ? 'Demo' : 'Massive',
       isRealtime: this.status === 'LIVE',
       lastTickTime: this.lastTickTime,
       statusDetails: this.statusDetails
@@ -1385,7 +1385,7 @@ export class MassiveProvider implements MarketDataProvider {
     const lastCandle = m5.length > 0 ? m5[m5.length - 1] : null;
 
     return {
-      provider: this.isUsingDemoFallback ? 'Massive (Demo Mode)' : 'Massive',
+      provider: this.isUsingDemoFallback ? 'Demo' : 'Massive',
       symbol,
       providerSymbol: this.symbolMap[symbol] || meta.providerSymbol,
       connection: this.isConnected ? 'CONNECTED' : (this.isConnecting ? 'CONNECTING' : 'DISCONNECTED'),
@@ -1506,7 +1506,7 @@ export class DemoMarketDataProvider implements MarketDataProvider {
   public getStatus() {
     return {
       status: 'DEMO' as ConnectionStatus,
-      provider: 'Twelve Data (Demo Mode)',
+      provider: 'Demo',
       isRealtime: false,
       lastTickTime: this.lastTickTime,
       statusDetails: 'Running in simulated demonstration mode. No live stream active.'
@@ -1519,7 +1519,7 @@ export class DemoMarketDataProvider implements MarketDataProvider {
     const lastCandle = m5.length > 0 ? m5[m5.length - 1] : null;
 
     return {
-      provider: 'Twelve Data (Demo Mode)',
+      provider: 'Demo',
       symbol,
       providerSymbol: meta.providerSymbol,
       connection: 'DISCONNECTED',

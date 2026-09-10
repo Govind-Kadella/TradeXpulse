@@ -30,6 +30,7 @@ export class CandlePatternDetector {
         if (m.lowerWickPercentage > 58 && m.upperWickPercentage < 15) {
           patterns.push({
             name: 'Dragonfly Doji',
+            patternKey: 'DOJI',
             type: 'SINGLE',
             direction: 'BULLISH',
             timeframe,
@@ -44,6 +45,7 @@ export class CandlePatternDetector {
         } else if (m.upperWickPercentage > 58 && m.lowerWickPercentage < 15) {
           patterns.push({
             name: 'Gravestone Doji',
+            patternKey: 'DOJI',
             type: 'SINGLE',
             direction: 'BEARISH',
             timeframe,
@@ -58,6 +60,7 @@ export class CandlePatternDetector {
         } else {
           patterns.push({
             name: 'Neutral Doji',
+            patternKey: 'DOJI',
             type: 'SINGLE',
             direction: 'NEUTRAL',
             timeframe,
@@ -77,6 +80,7 @@ export class CandlePatternDetector {
         const isDowntrend = prev.close < (prev2 ? prev2.close : prev.close);
         patterns.push({
           name: isDowntrend ? 'Hammer Reversal' : 'Hanging Man Warning',
+          patternKey: isDowntrend ? 'HAMMER' : 'HANGING_MAN',
           type: 'SINGLE',
           direction: isDowntrend ? 'BULLISH' : 'BEARISH',
           timeframe,
@@ -95,6 +99,7 @@ export class CandlePatternDetector {
         const isUptrend = prev.close > (prev2 ? prev2.close : prev.close);
         patterns.push({
           name: isUptrend ? 'Shooting Star' : 'Inverted Hammer',
+          patternKey: isUptrend ? 'SHOOTING_STAR' : 'INVERTED_HAMMER',
           type: 'SINGLE',
           direction: isUptrend ? 'BEARISH' : 'BULLISH',
           timeframe,
@@ -112,6 +117,7 @@ export class CandlePatternDetector {
       if (m.lowerWickPercentage >= 65 && m.bodyPercentage < 30) {
         patterns.push({
           name: 'Bullish Pin Bar',
+          patternKey: 'PIN_BAR',
           type: 'SINGLE',
           direction: 'BULLISH',
           timeframe,
@@ -126,6 +132,7 @@ export class CandlePatternDetector {
       } else if (m.upperWickPercentage >= 65 && m.bodyPercentage < 30) {
         patterns.push({
           name: 'Bearish Pin Bar',
+          patternKey: 'PIN_BAR',
           type: 'SINGLE',
           direction: 'BEARISH',
           timeframe,
@@ -143,6 +150,7 @@ export class CandlePatternDetector {
       if (m.bodyToRange >= 0.82 && m.relativeRange >= 1.1) {
         patterns.push({
           name: m.bullish ? 'Bullish Marubozu Expansion' : 'Bearish Marubozu Expansion',
+          patternKey: 'MARUBOZU',
           type: 'SINGLE',
           direction: m.bullish ? 'BULLISH' : 'BEARISH',
           timeframe,
@@ -160,6 +168,7 @@ export class CandlePatternDetector {
       if (m.bodyToRange >= 0.12 && m.bodyToRange <= 0.35 && m.upperWickPercentage > 25 && m.lowerWickPercentage > 25) {
         patterns.push({
           name: 'Spinning Top',
+          patternKey: 'SPINNING_TOP',
           type: 'SINGLE',
           direction: 'NEUTRAL',
           timeframe,
@@ -181,6 +190,7 @@ export class CandlePatternDetector {
       if (prevM.bearish && m.bullish && c.close >= prev.open && c.open <= prev.close && m.body > prevM.body * 1.1) {
         patterns.push({
           name: 'Bullish Engulfing',
+          patternKey: 'BULLISH_ENGULFING',
           type: 'TWO_CANDLE',
           direction: 'BULLISH',
           timeframe,
@@ -198,6 +208,7 @@ export class CandlePatternDetector {
       if (prevM.bullish && m.bearish && c.close <= prev.open && c.open >= prev.close && m.body > prevM.body * 1.1) {
         patterns.push({
           name: 'Bearish Engulfing',
+          patternKey: 'BEARISH_ENGULFING',
           type: 'TWO_CANDLE',
           direction: 'BEARISH',
           timeframe,
@@ -216,6 +227,7 @@ export class CandlePatternDetector {
         if (prevM.bearish && m.bullish && c.open >= prev.close && c.close <= prev.open) {
           patterns.push({
             name: 'Bullish Harami',
+            patternKey: 'BULLISH_HARAMI',
             type: 'TWO_CANDLE',
             direction: 'BULLISH',
             timeframe,
@@ -230,6 +242,7 @@ export class CandlePatternDetector {
         } else if (prevM.bullish && m.bearish && c.open <= prev.close && c.close >= prev.open) {
           patterns.push({
             name: 'Bearish Harami',
+            patternKey: 'BEARISH_HARAMI',
             type: 'TWO_CANDLE',
             direction: 'BEARISH',
             timeframe,
@@ -248,6 +261,7 @@ export class CandlePatternDetector {
       if (prevM.bearish && m.bullish && c.open < prev.low && c.close > (prev.open + prev.close) / 2 && c.close < prev.open) {
         patterns.push({
           name: 'Piercing Pattern',
+          patternKey: 'PIERCING_LINE',
           type: 'TWO_CANDLE',
           direction: 'BULLISH',
           timeframe,
@@ -265,6 +279,7 @@ export class CandlePatternDetector {
       if (prevM.bullish && m.bearish && c.open > prev.high && c.close < (prev.open + prev.close) / 2 && c.close > prev.open) {
         patterns.push({
           name: 'Dark Cloud Cover',
+          patternKey: 'DARK_CLOUD_COVER',
           type: 'TWO_CANDLE',
           direction: 'BEARISH',
           timeframe,
@@ -283,6 +298,7 @@ export class CandlePatternDetector {
       if (Math.abs(c.high - prev.high) <= diffTolerance && m.upperWickPercentage > 30 && prevM.upperWickPercentage > 30) {
         patterns.push({
           name: 'Tweezer Top Rejection',
+          patternKey: 'TWEEZER_TOP',
           type: 'TWO_CANDLE',
           direction: 'BEARISH',
           timeframe,
@@ -297,6 +313,7 @@ export class CandlePatternDetector {
       } else if (Math.abs(c.low - prev.low) <= diffTolerance && m.lowerWickPercentage > 30 && prevM.lowerWickPercentage > 30) {
         patterns.push({
           name: 'Tweezer Bottom Defense',
+          patternKey: 'TWEEZER_BOTTOM',
           type: 'TWO_CANDLE',
           direction: 'BULLISH',
           timeframe,
@@ -318,6 +335,7 @@ export class CandlePatternDetector {
         if (prev2M.bearish && prevM.bodyToRange < 0.35 && m.bullish && c.close > (prev2.open + prev2.close) / 2) {
           patterns.push({
             name: 'Morning Star',
+            patternKey: 'MORNING_STAR',
             type: 'MULTI_CANDLE',
             direction: 'BULLISH',
             timeframe,
@@ -335,6 +353,7 @@ export class CandlePatternDetector {
         if (prev2M.bullish && prevM.bodyToRange < 0.35 && m.bearish && c.close < (prev2.open + prev2.close) / 2) {
           patterns.push({
             name: 'Evening Star',
+            patternKey: 'EVENING_STAR',
             type: 'MULTI_CANDLE',
             direction: 'BEARISH',
             timeframe,
@@ -356,6 +375,7 @@ export class CandlePatternDetector {
         ) {
           patterns.push({
             name: 'Three White Soldiers',
+            patternKey: 'THREE_WHITE_SOLDIERS',
             type: 'MULTI_CANDLE',
             direction: 'BULLISH',
             timeframe,
@@ -377,6 +397,7 @@ export class CandlePatternDetector {
         ) {
           patterns.push({
             name: 'Three Black Crows',
+            patternKey: 'THREE_BLACK_CROWS',
             type: 'MULTI_CANDLE',
             direction: 'BEARISH',
             timeframe,
@@ -394,6 +415,7 @@ export class CandlePatternDetector {
         if (prev2M.bearish && prevM.bullish && prev.close < prev2.open && m.bullish && c.close > prev2.high) {
           patterns.push({
             name: 'Three Inside Up',
+            patternKey: 'THREE_INSIDE_UP',
             type: 'MULTI_CANDLE',
             direction: 'BULLISH',
             timeframe,
@@ -411,6 +433,7 @@ export class CandlePatternDetector {
         if (prev2M.bullish && prevM.bearish && prev.close > prev2.open && m.bearish && c.close < prev2.low) {
           patterns.push({
             name: 'Three Inside Down',
+            patternKey: 'THREE_INSIDE_DOWN',
             type: 'MULTI_CANDLE',
             direction: 'BEARISH',
             timeframe,
@@ -428,6 +451,7 @@ export class CandlePatternDetector {
         if (prev2M.bearish && prevM.bullish && prev.close >= prev2.open && prev.open <= prev2.close && m.bullish && c.close > prev.close) {
           patterns.push({
             name: 'Three Outside Up',
+            patternKey: 'THREE_OUTSIDE_UP',
             type: 'MULTI_CANDLE',
             direction: 'BULLISH',
             timeframe,
@@ -445,6 +469,7 @@ export class CandlePatternDetector {
         if (prev2M.bullish && prevM.bearish && prev.close <= prev2.open && prev.open >= prev2.close && m.bearish && c.close < prev.close) {
           patterns.push({
             name: 'Three Outside Down',
+            patternKey: 'THREE_OUTSIDE_DOWN',
             type: 'MULTI_CANDLE',
             direction: 'BEARISH',
             timeframe,

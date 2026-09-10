@@ -22,13 +22,15 @@ import {
   OrderRequest,
   OrderResult,
   RiskConfig,
-  RiskEvaluationResult
+  RiskEvaluationResult,
+  sanitizeTimeframe
 } from '../types';
 import { MarketDataService, MARKET_META } from '../services/marketDataService';
 import { AnalysisEngine } from '../services/analysisEngine';
 import { RealtimeMarketClient } from '../services/realtimeMarketClient';
 import { TwelveDataMarketService, SymbolMarketState } from '../services/TwelveDataMarketService';
 import { PaperExecutionAdapter, RiskEngine } from '../services/executionProvider';
+import { ChartViewportEngine } from '../services/chartViewportEngine';
 
 interface PredictionStateContextType {
   // Navigation & Selections
@@ -79,10 +81,21 @@ interface PredictionStateContextType {
   zoomOut: (anchorRatio?: number) => void;
   resetView: () => void;
   
+  // Fullscreen Mode
+  isChartFullscreen: boolean;
+  setIsChartFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleChartFullscreen: () => void;
+  
   // Chart Display Controls
   overlayConfig: ChartOverlayConfig;
   setOverlayConfig: React.Dispatch<React.SetStateAction<ChartOverlayConfig>>;
   toggleOverlay: (key: keyof ChartOverlayConfig) => void;
+  selectAllMarketStructure: () => void;
+  clearAllMarketStructure: () => void;
+  isMarketStructureEnabled: boolean;
+  toggleMarketStructure: () => void;
+  isMarketPredictionEnabled: boolean;
+  toggleMarketPrediction: () => void;
 
   // Execution & Risk Management
   account: AccountInfo;
@@ -99,33 +112,149 @@ interface PredictionStateContextType {
   stageTradeFromPrediction: () => void;
 }
 
+export const ALL_MARKET_STRUCTURE_KEYS: (keyof ChartOverlayConfig)[] = [
+  'showPatternDoji', 'showPatternHammer', 'showPatternInvertedHammer', 'showPatternShootingStar',
+  'showPatternHangingMan', 'showPatternPinBar', 'showPatternMarubozu', 'showPatternSpinningTop',
+  'showPatternBullishEngulfing', 'showPatternBearishEngulfing', 'showPatternBullishHarami', 'showPatternBearishHarami',
+  'showPatternPiercingLine', 'showPatternDarkCloudCover', 'showPatternTweezerTop', 'showPatternTweezerBottom',
+  'showPatternMorningStar', 'showPatternEveningStar', 'showPatternThreeWhiteSoldiers', 'showPatternThreeBlackCrows',
+  'showPatternThreeInsideUp', 'showPatternThreeInsideDown', 'showPatternThreeOutsideUp', 'showPatternThreeOutsideDown',
+  'showMS_BOS', 'showMS_CHoCH', 'showMS_CoC', 'showMS_Swings', 'showMS_HH_HL', 'showMS_LH_LL',
+  'showFVG_Bullish', 'showFVG_Bearish', 'showFVG_Mitigated',
+  'showOB_Bullish', 'showOB_Bearish', 'showOB_Mitigated',
+  'showLiq_Sweeps', 'showLiq_EQH', 'showLiq_EQL',
+  'showSR_Support', 'showSR_Resistance'
+];
+
 const defaultOverlayConfig: ChartOverlayConfig = {
-  showForecastPath: true,
-  showEntryZone: true,
-  showTargets: true,
-  showSupportResistance: true,
+  showForecastPath: false,
+  showEntryZone: false,
+  showTargets: false,
+  showSupportResistance: false,
   showVolume: true,
-  showEMAs: true,
+  showEMAs: false,
   showCrosshair: true,
-  showHistoricalLevels: true,
-  showMarketStructure: true,
-  showFVG: true,
-  showOrderBlocks: true,
+  showHistoricalLevels: false,
+  showMarketStructure: false,
+  showFVG: false,
+  showOrderBlocks: false,
+  showCandlePatterns: false,
+
+  // Single-Candle Price Action
+  showPatternDoji: false,
+  showPatternHammer: false,
+  showPatternInvertedHammer: false,
+  showPatternShootingStar: false,
+  showPatternHangingMan: false,
+  showPatternPinBar: false,
+  showPatternMarubozu: false,
+  showPatternSpinningTop: false,
+
+  // Two-Candle Patterns
+  showPatternBullishEngulfing: false,
+  showPatternBearishEngulfing: false,
+  showPatternBullishHarami: false,
+  showPatternBearishHarami: false,
+  showPatternPiercingLine: false,
+  showPatternDarkCloudCover: false,
+  showPatternTweezerTop: false,
+  showPatternTweezerBottom: false,
+
+  // Multi-Candle Patterns
+  showPatternMorningStar: false,
+  showPatternEveningStar: false,
+  showPatternThreeWhiteSoldiers: false,
+  showPatternThreeBlackCrows: false,
+  showPatternThreeInsideUp: false,
+  showPatternThreeInsideDown: false,
+  showPatternThreeOutsideUp: false,
+  showPatternThreeOutsideDown: false,
+
+  // Market Structure
+  showMS_BOS: false,
+  showMS_CHoCH: false,
+  showMS_CoC: false,
+  showMS_Swings: false,
+  showMS_HH_HL: false,
+  showMS_LH_LL: false,
+
+  // Fair Value Gaps (FVG)
+  showFVG_Bullish: false,
+  showFVG_Bearish: false,
+  showFVG_Mitigated: false,
+
+  // Order Blocks (OB)
+  showOB_Bullish: false,
+  showOB_Bearish: false,
+  showOB_Mitigated: false,
+
+  // Liquidity
+  showLiq_Sweeps: false,
+  showLiq_EQH: false,
+  showLiq_EQL: false,
+
+  // Support / Resistance
+  showSR_Support: false,
+  showSR_Resistance: false,
 };
 
 const PredictionStateContext = createContext<PredictionStateContextType | null>(null);
 
 export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>('XAUUSD');
-  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('M5');
+  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>(() => sanitizeTimeframe('M5'));
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [activeBias, setActiveBias] = useState<BiasType>('BULLISH');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [overlayConfig, setOverlayConfig] = useState<ChartOverlayConfig>(defaultOverlayConfig);
+  const [isChartFullscreen, setIsChartFullscreen] = useState<boolean>(false);
+
+  // Fullscreen management with Browser Fullscreen API and fallback support
+  const toggleChartFullscreen = useCallback(() => {
+    setIsChartFullscreen(prev => {
+      const next = !prev;
+      if (next) {
+        try {
+          if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        } catch (e) {}
+      } else {
+        try {
+          if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        } catch (e) {}
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setIsChartFullscreen(false);
+      } else {
+        setIsChartFullscreen(true);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsChartFullscreen(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Real-time connection & feed state
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('CONNECTING');
-  const [providerName, setProviderName] = useState<string>('Twelve Data');
+  const [providerName, setProviderName] = useState<string>('Demo');
   const [isRealtime, setIsRealtime] = useState<boolean>(false);
   const [lastTickTimestamp, setLastTickTimestamp] = useState<number>(Date.now());
   const [m5CountdownText, setM5CountdownText] = useState<string>('M5 closes in 04:30');
@@ -159,19 +288,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
   // Chart Viewport Model State (Independent of growing realtime candle datasets)
   const [viewport, setViewport] = useState<ChartViewport>(() => {
-    const initialCount = 250;
-    const visibleBarCount = 55;
-    const rightOffsetBars = 14;
-    const liveFirst = Math.max(0, (initialCount - 1 + rightOffsetBars) - visibleBarCount);
-    return {
-      firstVisibleIndex: liveFirst,
-      visibleBarCount,
-      rightOffsetBars,
-      mode: 'LIVE',
-      isFollowingLive: true,
-      isDragging: false,
-      isZooming: false
-    };
+    return ChartViewportEngine.createInitialViewport(250, 55, 12);
   });
 
   const viewportRef = useRef<ChartViewport>(viewport);
@@ -180,13 +297,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   // Backwards-compatible panOffset & visibleCandleCount bridges
   const panOffset = useMemo(() => {
     if (viewport.mode === 'LIVE') return 0;
-    const liveFirst = (candles.length - 1 + viewport.rightOffsetBars) - viewport.visibleBarCount;
+    const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, viewport.visibleBarCount, viewport.rightOffsetBars);
     return Math.max(0, Math.round(liveFirst - viewport.firstVisibleIndex));
   }, [viewport, candles.length]);
 
   const setPanOffset = useCallback((action: React.SetStateAction<number>) => {
     setViewport(prev => {
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
+      const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, prev.visibleBarCount, prev.rightOffsetBars);
       const currentOffset = Math.max(0, Math.round(liveFirst - prev.firstVisibleIndex));
       const nextOffset = typeof action === 'function' ? action(currentOffset) : action;
       if (nextOffset <= 0) {
@@ -210,8 +327,8 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const setVisibleCandleCount = useCallback((action: React.SetStateAction<number>) => {
     setViewport(prev => {
       const nextCount = typeof action === 'function' ? action(prev.visibleBarCount) : action;
-      const clamped = Math.max(16, Math.min(250, nextCount));
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - clamped;
+      const clamped = Math.max(ChartViewportEngine.MIN_VISIBLE_BARS, Math.min(ChartViewportEngine.MAX_VISIBLE_BARS, nextCount));
+      const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, clamped, prev.rightOffsetBars);
       if (prev.isFollowingLive) {
         return {
           ...prev,
@@ -296,15 +413,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
           // LIVE MODE: automatically advance viewport to follow latest candle
           if (viewportRef.current.isFollowingLive) {
-            setViewport(prev => {
-              const liveFirst = (updated.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
-              return {
-                ...prev,
-                firstVisibleIndex: liveFirst,
-                mode: 'LIVE',
-                isFollowingLive: true
-              };
-            });
+            setViewport(prev => ChartViewportEngine.handleNewRealtimeCandle(prev, updated.length));
           }
           // HISTORICAL MODE: do NOT touch viewport! Viewport remains frozen on viewed bars.
 
@@ -328,13 +437,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         if (tfCandles && tfCandles.length > 0) {
           setCandles(tfCandles);
           if (viewportRef.current.isFollowingLive) {
-            const liveFirst = (tfCandles.length - 1 + viewportRef.current.rightOffsetBars) - viewportRef.current.visibleBarCount;
-            setViewport(prev => ({
-              ...prev,
-              firstVisibleIndex: liveFirst,
-              mode: 'LIVE',
-              isFollowingLive: true
-            }));
+            setViewport(prev => ChartViewportEngine.snapToLive(prev, tfCandles.length));
           }
         }
         if (snapshot.m5Countdown) {
@@ -547,31 +650,49 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, [activeSymbol, marketOverview.currentPrice, prediction]);
 
-  // Feed status metadata with connection state & data staleness protection
+  // Canonical truthful data status with connection state & data staleness protection
   const marketDataStatus: MarketDataStatusInfo = useMemo(() => {
     const now = Date.now();
-    const isStale = now - lastTickTimestamp > 25000 && connectionStatus === 'LIVE';
+    const tickAge = lastTickTimestamp > 0 ? now - lastTickTimestamp : Infinity;
+    const isStale = tickAge > 25000 && connectionStatus === 'LIVE';
     
+    // Determine canonical effective status
+    const effectiveStatus: ConnectionStatus = 
+      connectionStatus === 'LIVE' && isStale 
+        ? 'STALE' 
+        : connectionStatus;
+
+    // Determine actual active provider
+    let cleanProvider = providerName || 'Demo';
+    if (effectiveStatus === 'DEMO' || cleanProvider.toLowerCase().includes('demo')) {
+      cleanProvider = 'Demo';
+    }
+
+    // Determine truthful status description
     let statusLabel = 'Connecting...';
-    if (connectionStatus === 'LIVE') {
-      statusLabel = isStale ? 'Data Stale (Reconnecting)' : 'Twelve Data (Live Stream)';
-    } else if (connectionStatus === 'DEMO') {
-      statusLabel = 'Twelve Data (Demo Mode)';
-    } else if (connectionStatus === 'RECONNECTING') {
+    if (effectiveStatus === 'LIVE') {
+      statusLabel = `${cleanProvider} (Live Stream)`;
+    } else if (effectiveStatus === 'STALE') {
+      statusLabel = `${cleanProvider} (Data Stale)`;
+    } else if (effectiveStatus === 'DEMO') {
+      statusLabel = 'Demo Mode (Simulated Feed)';
+    } else if (effectiveStatus === 'RECONNECTING') {
       statusLabel = 'Reconnecting...';
-    } else if (connectionStatus === 'OFFLINE') {
+    } else if (effectiveStatus === 'OFFLINE') {
       statusLabel = 'Offline';
     }
 
+    const isLiveVerified = effectiveStatus === 'LIVE';
+
     return {
       dataStatus: statusLabel,
-      lastUpdate: new Date(lastTickTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      lastUpdate: lastTickTimestamp > 0 ? new Date(lastTickTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'None',
       symbol: activeSymbol,
       timeframe: activeTimeframe,
-      pingMs: isRealtime ? 18 + Math.floor(Math.random() * 8) : 5,
-      connectionStatus,
-      provider: providerName,
-      isRealtime,
+      pingMs: isLiveVerified ? 18 + Math.floor(Math.random() * 8) : 5,
+      connectionStatus: effectiveStatus,
+      provider: cleanProvider,
+      isRealtime: isLiveVerified,
       lastTickTime: lastTickTimestamp,
       m5SecondsRemaining,
       m5CountdownText,
@@ -632,27 +753,19 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
   // Return to live latest candle (Instantly snaps back to LIVE edge with right-side margin)
   const returnToLive = useCallback(() => {
-    setViewport(prev => {
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - prev.visibleBarCount;
-      return {
-        ...prev,
-        firstVisibleIndex: liveFirst,
-        mode: 'LIVE',
-        isFollowingLive: true
-      };
-    });
+    setViewport(prev => ChartViewportEngine.snapToLive(prev, candles.length));
   }, [candles.length]);
 
   // Cursor/Center Anchor-based Zoom Controls
   const zoomIn = useCallback((anchorRatio: number = 0.5) => {
     setViewport(prev => {
       const clampedRatio = Math.max(0.05, Math.min(0.95, anchorRatio));
-      const newVisible = Math.max(16, Math.round(prev.visibleBarCount * 0.85));
+      const newVisible = Math.max(ChartViewportEngine.MIN_VISIBLE_BARS, Math.round(prev.visibleBarCount * 0.85));
       const anchorIndex = prev.firstVisibleIndex + clampedRatio * prev.visibleBarCount;
       let newFirst = anchorIndex - clampedRatio * newVisible;
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - newVisible;
+      const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, newVisible, prev.rightOffsetBars);
 
-      if (prev.isFollowingLive || newFirst >= liveFirst - 1.2) {
+      if (prev.isFollowingLive || newFirst >= liveFirst - ChartViewportEngine.LIVE_EDGE_SNAP_TOLERANCE) {
         return {
           ...prev,
           visibleBarCount: newVisible,
@@ -672,10 +785,10 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const zoomOut = useCallback((anchorRatio: number = 0.5) => {
     setViewport(prev => {
       const clampedRatio = Math.max(0.05, Math.min(0.95, anchorRatio));
-      const newVisible = Math.min(240, Math.round(prev.visibleBarCount * 1.18));
+      const newVisible = Math.min(ChartViewportEngine.MAX_VISIBLE_BARS, Math.round(prev.visibleBarCount * 1.18));
       const anchorIndex = prev.firstVisibleIndex + clampedRatio * prev.visibleBarCount;
       let newFirst = anchorIndex - clampedRatio * newVisible;
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - newVisible;
+      const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, newVisible, prev.rightOffsetBars);
 
       if (prev.isFollowingLive) {
         return {
@@ -697,7 +810,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const resetView = useCallback(() => {
     setViewport(prev => {
       const defaultVisible = 55;
-      const liveFirst = (candles.length - 1 + prev.rightOffsetBars) - defaultVisible;
+      const liveFirst = ChartViewportEngine.getLiveFirstVisibleIndex(candles.length, defaultVisible, prev.rightOffsetBars);
       return {
         ...prev,
         visibleBarCount: defaultVisible,
@@ -710,11 +823,11 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
   // Timeframe change: If LIVE, remain in LIVE mode. If HISTORICAL, preserve approximate time position.
   const handleTimeframeChange = useCallback((tf: Timeframe) => {
+    const cleanTf = sanitizeTimeframe(tf);
     const curViewport = viewportRef.current;
-    const isLive = curViewport.isFollowingLive;
     let targetTime: number | null = null;
 
-    if (!isLive && candles.length > 0) {
+    if (!curViewport.isFollowingLive && candles.length > 0) {
       const centerIdx = Math.max(
         0, 
         Math.min(candles.length - 1, Math.round(curViewport.firstVisibleIndex + curViewport.visibleBarCount / 2))
@@ -722,39 +835,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
       targetTime = candles[centerIdx]?.time || null;
     }
 
-    setActiveTimeframe(tf);
+    setActiveTimeframe(cleanTf);
 
     // Fetch candles for newly selected timeframe
-    MarketDataService.fetchHistoricalCandles(activeSymbolRef.current, tf, 250).then(fetched => {
+    MarketDataService.fetchHistoricalCandles(activeSymbolRef.current, cleanTf, 250).then(fetched => {
       if (fetched && fetched.length > 0) {
         setCandles(fetched);
-        if (isLive || !targetTime) {
-          const liveFirst = (fetched.length - 1 + curViewport.rightOffsetBars) - curViewport.visibleBarCount;
-          setViewport(prev => ({
-            ...prev,
-            firstVisibleIndex: liveFirst,
-            mode: 'LIVE',
-            isFollowingLive: true
-          }));
-        } else {
-          // Historical: find candle closest to preserved targetTime
-          let closestIdx = 0;
-          let minDiff = Infinity;
-          fetched.forEach((c, idx) => {
-            const diff = Math.abs(c.time - targetTime!);
-            if (diff < minDiff) {
-              minDiff = diff;
-              closestIdx = idx;
-            }
-          });
-          const newFirst = Math.max(0, closestIdx - Math.round(curViewport.visibleBarCount / 2));
-          setViewport(prev => ({
-            ...prev,
-            firstVisibleIndex: newFirst,
-            mode: 'HISTORICAL',
-            isFollowingLive: false
-          }));
-        }
+        setViewport(prev => ChartViewportEngine.rebaseTimeframe(prev, targetTime, fetched));
       }
     }).catch(err => {
       console.warn('[Timeframe change fetch error]', err);
@@ -777,6 +864,76 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
   const toggleOverlay = useCallback((key: keyof ChartOverlayConfig) => {
     setOverlayConfig(prev => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const isMarketStructureEnabled = useMemo(() => {
+    return ALL_MARKET_STRUCTURE_KEYS.some(k => !!overlayConfig[k]) || !!overlayConfig.showMarketStructure;
+  }, [overlayConfig]);
+
+  const selectAllMarketStructure = useCallback(() => {
+    setOverlayConfig(prev => {
+      const updated = { 
+        ...prev, 
+        showMarketStructure: true, 
+        showFVG: true, 
+        showOrderBlocks: true, 
+        showCandlePatterns: true, 
+        showHistoricalLevels: true 
+      };
+      ALL_MARKET_STRUCTURE_KEYS.forEach(k => {
+        (updated as any)[k] = true;
+      });
+      return updated;
+    });
+  }, []);
+
+  const clearAllMarketStructure = useCallback(() => {
+    setOverlayConfig(prev => {
+      const updated = { 
+        ...prev, 
+        showMarketStructure: false, 
+        showFVG: false, 
+        showOrderBlocks: false, 
+        showCandlePatterns: false, 
+        showHistoricalLevels: false 
+      };
+      ALL_MARKET_STRUCTURE_KEYS.forEach(k => {
+        (updated as any)[k] = false;
+      });
+      return updated;
+    });
+  }, []);
+
+  const toggleMarketStructure = useCallback(() => {
+    if (isMarketStructureEnabled) {
+      clearAllMarketStructure();
+    } else {
+      setOverlayConfig(prev => {
+        const updated = { ...prev, showMarketStructure: true, showFVG: true, showOrderBlocks: true };
+        updated.showMS_BOS = true;
+        updated.showMS_CHoCH = true;
+        updated.showFVG_Bullish = true;
+        updated.showFVG_Bearish = true;
+        updated.showOB_Bullish = true;
+        updated.showOB_Bearish = true;
+        updated.showLiq_Sweeps = true;
+        return updated;
+      });
+    }
+  }, [isMarketStructureEnabled, clearAllMarketStructure]);
+
+  const isMarketPredictionEnabled = overlayConfig.showForecastPath;
+  const toggleMarketPrediction = useCallback(() => {
+    setOverlayConfig(prev => {
+      const next = !prev.showForecastPath;
+      return {
+        ...prev,
+        showForecastPath: next,
+        showEntryZone: next,
+        showTargets: next,
+        showSupportResistance: next,
+      };
+    });
   }, []);
 
   // Symbol change: If previously LIVE, open new symbol at newest data.
@@ -887,9 +1044,18 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         zoomIn,
         zoomOut,
         resetView,
+        isChartFullscreen,
+        setIsChartFullscreen,
+        toggleChartFullscreen,
         overlayConfig,
         setOverlayConfig,
         toggleOverlay,
+        selectAllMarketStructure,
+        clearAllMarketStructure,
+        isMarketStructureEnabled,
+        toggleMarketStructure,
+        isMarketPredictionEnabled,
+        toggleMarketPrediction,
         account,
         positions,
         orders,

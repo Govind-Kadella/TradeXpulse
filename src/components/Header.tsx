@@ -1,10 +1,24 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { usePredictionState } from '../context/PredictionStateContext';
-import { MarketSymbol, ActiveView } from '../types';
-import { Settings, Compass, LayoutDashboard, Sliders, ShieldCheck } from 'lucide-react';
+import { MarketSymbol } from '../types';
+import { 
+  Compass, 
+  LayoutDashboard, 
+  Sliders, 
+  ShieldCheck, 
+  Search, 
+  Bell, 
+  Moon, 
+  Sun,
+  ChevronDown
+} from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { activeSymbol, setSymbol, activeView, setView, connectionStatus, marketDataStatus } = usePredictionState();
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
+  const [isDark, setIsDark] = useState<boolean>(true);
+  const [symbolDropdownOpen, setSymbolDropdownOpen] = useState<boolean>(false);
 
   const markets: { symbol: MarketSymbol; label: string; sub?: string }[] = [
     { symbol: 'XAUUSD', label: 'XAUUSD', sub: 'Gold' },
@@ -13,70 +27,40 @@ export const Header: React.FC = () => {
     { symbol: 'GBPUSD', label: 'GBPUSD' },
   ];
 
-  const getStatusDotColor = () => {
-    switch (connectionStatus) {
-      case 'LIVE':
-        return 'bg-emerald-400 shadow-[0_0_8px_#34d399]';
-      case 'DEMO':
-        return 'bg-amber-400 shadow-[0_0_8px_#f59e0b]';
-      case 'CONNECTING':
-      case 'RECONNECTING':
-        return 'bg-blue-400 shadow-[0_0_8px_#3b82f6]';
-      case 'OFFLINE':
-      default:
-        return 'bg-red-400 shadow-[0_0_8px_#ef4444]';
-    }
-  };
-
-  const getStatusTextColor = () => {
-    switch (connectionStatus) {
-      case 'LIVE':
-        return 'text-emerald-300';
-      case 'DEMO':
-        return 'text-amber-300';
-      case 'CONNECTING':
-      case 'RECONNECTING':
-        return 'text-blue-300';
-      case 'OFFLINE':
-      default:
-        return 'text-red-400';
-    }
-  };
-
   return (
-    <header className="h-14 border-b border-[#1F2937] flex items-center justify-between px-4 sm:px-6 bg-[#0E1421] select-none z-30 relative shrink-0 font-sans">
-      {/* Left: Brand Identity & Nav */}
-      <div className="flex items-center gap-2 sm:gap-4">
+    <header className="h-13 border-b border-[#1B2537] flex items-center justify-between px-3 sm:px-4 bg-[#0A0E1A] select-none z-30 relative shrink-0 font-sans">
+      {/* Left: Brand Identity & Nav Tabs */}
+      <div className="flex items-center gap-3 xl:gap-5">
         <div 
           onClick={() => setView('dashboard')}
-          className="flex items-center gap-3 cursor-pointer group"
+          className="flex items-center gap-2.5 cursor-pointer group"
           id="brand-header-logo"
         >
-          {/* Custom TradeXpulse Hex-Pulse Emblem */}
-          <div className="relative flex items-center justify-center w-8 h-8 rounded bg-[#1D283D] border border-blue-500/40 shadow-[0_0_12px_rgba(59,130,246,0.2)] group-hover:border-blue-400 transition-all">
-            <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shadow-[0_0_8px_#3b82f6]"></div>
+          {/* TradeXpulse Pulse Emblem */}
+          <div className="relative flex items-center justify-center w-7 h-7 rounded-md bg-[#131D31] border border-cyan-500/40 shadow-[0_0_12px_rgba(56,189,248,0.25)] group-hover:border-cyan-400 transition-all">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#38bdf8]"></div>
           </div>
           <div className="flex flex-col">
-            <span className="text-base sm:text-lg font-black tracking-tight text-white leading-none">
+            <span className="text-sm font-black tracking-wider text-white leading-tight">
               TRADEXPULSE
             </span>
-            <span className="text-[10px] text-blue-400 font-bold tracking-widest uppercase mt-0.5">
+            <span className="text-[9px] text-cyan-400 font-bold tracking-widest uppercase">
               AI MARKET ANALYST
             </span>
           </div>
         </div>
 
-        <div className="h-8 w-[1px] bg-[#1F2937] mx-1 sm:mx-2 hidden md:block"></div>
+        <div className="h-6 w-[1px] bg-[#1B2537] hidden md:block"></div>
 
-        {/* Minimal Navigation Tabs */}
+        {/* Global Navigation Tabs: Dashboard, Market Map, Execution, Settings */}
         <nav className="hidden lg:flex items-center gap-1" id="main-nav-tabs">
           <button
             id="nav-dashboard-tab"
             onClick={() => setView('dashboard')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'dashboard'
-                ? 'bg-[#1D283D] border border-blue-500/50 text-white'
-                : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
             }`}
           >
             <LayoutDashboard className="w-3.5 h-3.5" />
@@ -85,10 +69,10 @@ export const Header: React.FC = () => {
           <button
             id="nav-marketmap-tab"
             onClick={() => setView('marketMap')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'marketMap'
-                ? 'bg-[#1D283D] border border-blue-500/50 text-white'
-                : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
             }`}
           >
             <Compass className="w-3.5 h-3.5" />
@@ -97,10 +81,10 @@ export const Header: React.FC = () => {
           <button
             id="nav-execution-tab"
             onClick={() => setView('execution')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'execution'
-                ? 'bg-[#1D283D] border border-blue-500/50 text-white shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
@@ -109,10 +93,10 @@ export const Header: React.FC = () => {
           <button
             id="nav-settings-tab"
             onClick={() => setView('settings')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'settings'
-                ? 'bg-[#1D283D] border border-blue-500/50 text-white'
-                : 'text-slate-400 hover:text-white hover:bg-[#1D283D]'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
@@ -121,66 +105,108 @@ export const Header: React.FC = () => {
         </nav>
       </div>
 
-      {/* Center: Market Selector (Strictly 4 supported markets: XAUUSD, EURJPY, EURUSD, GBPUSD) */}
-      <nav className="flex items-center gap-1.5" id="market-selector-group">
-        {markets.map((m) => {
-          const isSelected = activeSymbol === m.symbol;
-          return (
-            <button
-              key={m.symbol}
-              id={`market-select-${m.symbol.toLowerCase()}`}
-              onClick={() => setSymbol(m.symbol)}
-              className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                isSelected
-                  ? 'bg-blue-600/20 border border-blue-500 text-blue-300 shadow-[0_0_12px_rgba(59,130,246,0.25)]'
-                  : 'text-slate-400 hover:text-white hover:bg-[#1D283D] border border-transparent'
-              }`}
-            >
-              <span>{m.label}</span>
-              {m.sub && (
-                <span className={`text-[10px] px-1 py-0.2 rounded font-sans ${
-                  isSelected ? 'bg-blue-500/30 text-blue-200' : 'bg-[#1F2937] text-slate-400'
-                }`}>
-                  {m.sub}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      {/* Center/Right: Symbol Quick Switcher + Search Field */}
+      <div className="flex items-center gap-3">
+        {/* Quick Symbol Switcher Pill */}
+        <div className="relative">
+          <button
+            id="header-active-symbol-btn"
+            onClick={() => setSymbolDropdownOpen(!symbolDropdownOpen)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#111A2B] hover:bg-[#172338] border border-[#1F2C40] text-xs font-mono font-bold text-slate-200 transition-colors cursor-pointer"
+          >
+            <span className="text-cyan-400">{activeSymbol}</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
 
-      {/* Right: Explicitly "● MARKET DATA" + Demo Feed Badge + Settings / Profile */}
-      <div className="flex items-center gap-3 sm:gap-5">
-        <div 
-          className="flex items-center gap-2 bg-[#0A0E17] border border-[#1F2937] px-2.5 py-1 rounded-full cursor-default"
-          id="market-data-status-badge"
-          title={`Data Provider: ${marketDataStatus.provider} | Status: ${connectionStatus}`}
-        >
-          <span className={`h-2 w-2 rounded-full ${getStatusDotColor()} animate-pulse`}></span>
-          <span className="text-[10px] font-black text-slate-200 tracking-wider uppercase hidden sm:inline">
-            DATA: Twelve Data
-          </span>
-          <span className={`text-[9px] font-mono font-bold border-l border-[#1F2937] pl-2 ${getStatusTextColor()}`}>
-            STATUS: {connectionStatus}
-          </span>
+          {symbolDropdownOpen && (
+            <div className="absolute left-0 mt-1 w-44 bg-[#0E1524] border border-[#1F2C40] rounded-lg shadow-2xl p-1 z-50">
+              {markets.map(m => (
+                <button
+                  key={m.symbol}
+                  onClick={() => {
+                    setSymbol(m.symbol);
+                    setSymbolDropdownOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-xs font-mono transition-colors cursor-pointer ${
+                    activeSymbol === m.symbol 
+                      ? 'bg-blue-600/20 text-cyan-300 font-bold' 
+                      : 'text-slate-400 hover:text-white hover:bg-[#152033]'
+                  }`}
+                >
+                  <span>{m.label}</span>
+                  {m.sub && <span className="text-[10px] text-slate-500 font-sans">{m.sub}</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Action icons */}
-        <div className="flex items-center gap-2.5">
+        {/* Search Symbols Input */}
+        <div className="relative hidden md:block">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#111A2B] border transition-all ${
+            isSearchFocused ? 'border-cyan-500/60 shadow-[0_0_12px_rgba(56,189,248,0.15)] ring-1 ring-cyan-500/30' : 'border-[#1B2537]'
+          }`}>
+            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
+              placeholder="Search symbols..."
+              className="bg-transparent border-none outline-none text-xs text-slate-200 placeholder:text-slate-500 w-36 lg:w-44 font-sans"
+            />
+            <span className="text-[9.5px] font-mono font-bold text-slate-500 bg-[#0B101D] px-1.5 py-0.5 rounded border border-[#1B2537]">
+              ⌘K
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Controls: Theme Toggle, Notifications with Badge, User / Trading Pro with Pro Plan badge */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Light/Dark Mode Toggle */}
+        <button
+          id="header-theme-toggle-btn"
+          onClick={() => setIsDark(!isDark)}
+          title={isDark ? "Dark Theme Active" : "Light Theme"}
+          className="p-1.5 rounded-md hover:bg-[#131D31] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        >
+          {isDark ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-400" />}
+        </button>
+
+        {/* Notifications Icon with Badge */}
+        <div className="relative">
           <button
-            id="header-settings-button"
-            onClick={() => setView('settings')}
-            title="Analytics & Display Settings"
-            className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            id="header-notifications-btn"
+            title="Notifications & Alerts"
+            className="p-1.5 rounded-md hover:bg-[#131D31] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer relative"
           >
-            <Settings className="w-4 h-4" />
+            <Bell className="w-4 h-4" />
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#38bdf8] animate-pulse"></span>
           </button>
-          <div
-            id="header-profile-icon"
-            title="TradeXpulse Analyst"
-            className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-[#1F2937] hover:ring-blue-500 cursor-pointer transition-all"
-          >
+        </div>
+
+        <div className="h-6 w-[1px] bg-[#1B2537] mx-0.5"></div>
+
+        {/* User / Avatar & Trading Pro Plan Badge */}
+        <div 
+          id="header-user-profile-badge"
+          onClick={() => setView('settings')}
+          className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-[#121A2C] border border-transparent hover:border-[#1B2537] cursor-pointer transition-all"
+        >
+          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center text-[10px] font-black text-white ring-1 ring-cyan-500/40 shadow-sm">
             TX
+          </div>
+          <div className="hidden sm:flex flex-col text-left">
+            <span className="text-xs font-bold text-slate-200 leading-tight">
+              Trading Pro
+            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-mono font-extrabold px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 uppercase tracking-tighter leading-none">
+                PRO PLAN
+              </span>
+            </div>
           </div>
         </div>
       </div>

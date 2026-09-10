@@ -56,7 +56,7 @@ export class OrderBlockEngine {
             contextDetails: `Demand origin preceding ${ev.type} at ${ev.price.toFixed(digits)}${hasSweep ? ' with prior liquidity sweep' : ''}`
           };
 
-          this.trackZoneMitigation(zone, candles.slice(breakIdx));
+          this.trackZoneMitigation(zone, candles, breakIdx);
           // Deduplicate overlapping zones
           if (!zones.some(z => Math.abs(z.priceLow - zone.priceLow) < atr14 * 0.2)) {
             zones.push(zone);
@@ -92,7 +92,7 @@ export class OrderBlockEngine {
             contextDetails: `Supply origin preceding ${ev.type} at ${ev.price.toFixed(digits)}${hasSweep ? ' with prior liquidity sweep' : ''}`
           };
 
-          this.trackZoneMitigation(zone, candles.slice(breakIdx));
+          this.trackZoneMitigation(zone, candles, breakIdx);
           if (!zones.some(z => Math.abs(z.priceHigh - zone.priceHigh) < atr14 * 0.2)) {
             zones.push(zone);
           }
@@ -103,27 +103,34 @@ export class OrderBlockEngine {
     return zones;
   }
 
-  private static trackZoneMitigation(zone: OrderBlockZone, subsequentCandles: Candle[]): void {
-    if (subsequentCandles.length === 0) return;
+  private static trackZoneMitigation(zone: OrderBlockZone, allCandles: Candle[], startIndex: number): void {
+    if (startIndex >= allCandles.length) return;
 
-    for (const c of subsequentCandles) {
+    for (let i = startIndex; i < allCandles.length; i++) {
+      const c = allCandles[i];
       if (zone.direction === 'BULLISH') {
         if (c.close < zone.priceLow) {
           zone.status = 'INVALIDATED';
+          zone.mitigatedIndex = i;
           break;
         } else if (c.low <= zone.priceLow) {
           zone.status = 'BREACHED';
+          if (!zone.mitigatedIndex) zone.mitigatedIndex = i;
         } else if (c.low <= zone.priceHigh) {
           zone.status = 'TESTED';
+          if (!zone.mitigatedIndex) zone.mitigatedIndex = i;
         }
       } else {
         if (c.close > zone.priceHigh) {
           zone.status = 'INVALIDATED';
+          zone.mitigatedIndex = i;
           break;
         } else if (c.high >= zone.priceHigh) {
           zone.status = 'BREACHED';
+          if (!zone.mitigatedIndex) zone.mitigatedIndex = i;
         } else if (c.high >= zone.priceLow) {
           zone.status = 'TESTED';
+          if (!zone.mitigatedIndex) zone.mitigatedIndex = i;
         }
       }
     }
