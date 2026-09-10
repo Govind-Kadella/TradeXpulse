@@ -23,7 +23,8 @@ import {
   OrderResult,
   RiskConfig,
   RiskEvaluationResult,
-  sanitizeTimeframe
+  sanitizeTimeframe,
+  ChartTemplate
 } from '../types';
 import { MarketDataService, MARKET_META } from '../services/marketDataService';
 import { AnalysisEngine } from '../services/analysisEngine';
@@ -31,6 +32,12 @@ import { RealtimeMarketClient } from '../services/realtimeMarketClient';
 import { TwelveDataMarketService, SymbolMarketState } from '../services/TwelveDataMarketService';
 import { PaperExecutionAdapter, RiskEngine } from '../services/executionProvider';
 import { ChartViewportEngine } from '../services/chartViewportEngine';
+import {
+  CHART_TEMPLATES,
+  TEMPLATE_STORAGE_KEY,
+  OVERLAY_STORAGE_KEY,
+  applyTemplateToConfig,
+} from '../services/templateService';
 
 interface PredictionStateContextType {
   // Navigation & Selections
@@ -96,6 +103,11 @@ interface PredictionStateContextType {
   toggleMarketStructure: () => void;
   isMarketPredictionEnabled: boolean;
   toggleMarketPrediction: () => void;
+
+  // Chart Templates
+  activeTemplate: ChartTemplate;
+  setActiveTemplate: React.Dispatch<React.SetStateAction<ChartTemplate>>;
+  applyTemplate: (template: ChartTemplate) => void;
 
   // Execution & Risk Management
   account: AccountInfo;
@@ -206,7 +218,52 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [activeBias, setActiveBias] = useState<BiasType>('BULLISH');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [overlayConfig, setOverlayConfig] = useState<ChartOverlayConfig>(defaultOverlayConfig);
+
+  // Template and Overlay Settings with Session Persistence
+  const [activeTemplate, setActiveTemplate] = useState<ChartTemplate>(() => {
+    try {
+      const saved = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+      if (
+        saved === 'TRADEXPULSE_AI_PRO' ||
+        saved === 'PURE_PRICE_ACTION' ||
+        saved === 'INSTITUTIONAL_LEVELS' ||
+        saved === 'CUSTOM'
+      ) {
+        return saved as ChartTemplate;
+      }
+    } catch {
+      // ignore
+    }
+    return 'TRADEXPULSE_AI_PRO';
+  });
+
+  const [overlayConfig, setOverlayConfig] = useState<ChartOverlayConfig>(() => {
+    try {
+      const savedSettings = localStorage.getItem(OVERLAY_STORAGE_KEY);
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        if (parsed && typeof parsed === 'object') {
+          return { ...defaultOverlayConfig, ...parsed };
+        }
+      }
+
+      const savedTmpl = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+      if (savedTmpl && (savedTmpl === 'TRADEXPULSE_AI_PRO' || savedTmpl === 'PURE_PRICE_ACTION' || savedTmpl === 'INSTITUTIONAL_LEVELS')) {
+        return {
+          ...defaultOverlayConfig,
+          ...CHART_TEMPLATES[savedTmpl].overlays,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    // Default to TradeXpulse AI Pro workspace presets
+    return {
+      ...defaultOverlayConfig,
+      ...CHART_TEMPLATES.TRADEXPULSE_AI_PRO.overlays,
+    };
+  });
+
   const [isChartFullscreen, setIsChartFullscreen] = useState<boolean>(false);
 
   // Fullscreen management with Browser Fullscreen API and fallback support
@@ -862,8 +919,32 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     }, 450);
   }, [activeSymbol, marketOverview.currentPrice, activeBias, candles]);
 
+  const applyTemplate = useCallback((templateId: ChartTemplate) => {
+    setOverlayConfig(prev => {
+      const { newConfig, activeTemplate: newTmpl } = applyTemplateToConfig(templateId, prev);
+      setActiveTemplate(newTmpl);
+      try {
+        localStorage.setItem(TEMPLATE_STORAGE_KEY, newTmpl);
+        localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(newConfig));
+      } catch {
+        // ignore
+      }
+      return newConfig;
+    });
+  }, []);
+
   const toggleOverlay = useCallback((key: keyof ChartOverlayConfig) => {
-    setOverlayConfig(prev => ({ ...prev, [key]: !prev[key] }));
+    setOverlayConfig(prev => {
+      const updated = { ...prev, [key]: !prev[key] };
+      setActiveTemplate('CUSTOM');
+      try {
+        localStorage.setItem(TEMPLATE_STORAGE_KEY, 'CUSTOM');
+        localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
   }, []);
 
   const isMarketStructureEnabled = useMemo(() => {
@@ -883,6 +964,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
       ALL_MARKET_STRUCTURE_KEYS.forEach(k => {
         (updated as any)[k] = true;
       });
+      setActiveTemplate('CUSTOM');
+      try {
+        localStorage.setItem(TEMPLATE_STORAGE_KEY, 'CUSTOM');
+        localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
       return updated;
     });
   }, []);
@@ -900,6 +988,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
       ALL_MARKET_STRUCTURE_KEYS.forEach(k => {
         (updated as any)[k] = false;
       });
+      setActiveTemplate('CUSTOM');
+      try {
+        localStorage.setItem(TEMPLATE_STORAGE_KEY, 'CUSTOM');
+        localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
       return updated;
     });
   }, []);
@@ -917,6 +1012,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         updated.showOB_Bullish = true;
         updated.showOB_Bearish = true;
         updated.showLiq_Sweeps = true;
+        setActiveTemplate('CUSTOM');
+        try {
+          localStorage.setItem(TEMPLATE_STORAGE_KEY, 'CUSTOM');
+          localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
         return updated;
       });
     }
@@ -926,13 +1028,21 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const toggleMarketPrediction = useCallback(() => {
     setOverlayConfig(prev => {
       const next = !prev.showForecastPath;
-      return {
+      const updated = {
         ...prev,
         showForecastPath: next,
         showEntryZone: next,
         showTargets: next,
         showSupportResistance: next,
       };
+      setActiveTemplate('CUSTOM');
+      try {
+        localStorage.setItem(TEMPLATE_STORAGE_KEY, 'CUSTOM');
+        localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
     });
   }, []);
 
@@ -1056,6 +1166,9 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         toggleMarketStructure,
         isMarketPredictionEnabled,
         toggleMarketPrediction,
+        activeTemplate,
+        setActiveTemplate,
+        applyTemplate,
         account,
         positions,
         orders,

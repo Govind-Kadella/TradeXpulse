@@ -554,3 +554,17 @@ export interface MarketMapItem {
   digits: number;
 }
 
+export type ChartTemplate =
+  | 'TRADEXPULSE_AI_PRO'
+  | 'PURE_PRICE_ACTION'
+  | 'INSTITUTIONAL_LEVELS'
+  | 'CUSTOM';
+
+export interface ChartTemplateDefinition {
+  id: ChartTemplate;
+  name: string;
+  badge: string;
+  description: string;
+  overlays: Partial<ChartOverlayConfig>;
+}
+

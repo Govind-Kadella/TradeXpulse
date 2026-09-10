@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Candle, ChartOverlayConfig } from '../types';
 import { ChartViewportEngine } from '../services/chartViewportEngine';
+import { ALL_PATTERN_KEYS } from '../services/templateService';
 
 export const TradingChart: React.FC = () => {
   const {
@@ -802,10 +803,12 @@ export const TradingChart: React.FC = () => {
     // 5F. Liquidity Pools (PDH, PDL, Session Extremes, EQH/EQL)
     if (prediction.liquidityLevels && prediction.liquidityLevels.length > 0) {
       prediction.liquidityLevels.slice(0, 8).forEach((liq) => {
-        const isLiqActive = (overlayConfig.showMarketStructure && overlayConfig.showHistoricalLevels) ||
-          (liq.swept && overlayConfig.showLiq_Sweeps) ||
-          (liq.side === 'BUY_SIDE' && overlayConfig.showLiq_EQH) ||
-          (liq.side === 'SELL_SIDE' && overlayConfig.showLiq_EQL);
+        const liqSpecificActive = overlayConfig.showLiq_Sweeps || overlayConfig.showLiq_EQH || overlayConfig.showLiq_EQL;
+        const isLiqActive = liqSpecificActive
+          ? ((liq.swept && overlayConfig.showLiq_Sweeps) ||
+             (liq.side === 'BUY_SIDE' && overlayConfig.showLiq_EQH) ||
+             (liq.side === 'SELL_SIDE' && overlayConfig.showLiq_EQL))
+          : (overlayConfig.showMarketStructure && overlayConfig.showHistoricalLevels);
 
         if (!isLiqActive) return;
 
@@ -847,10 +850,15 @@ export const TradingChart: React.FC = () => {
         const isBull = fvg.direction === 'BULLISH';
         const isMitigated = fvg.status === 'FULLY_FILLED' || fvg.status === 'INVALIDATED';
 
-        const isFvgActive = (overlayConfig.showMarketStructure && overlayConfig.showFVG) ||
-          (isBull && overlayConfig.showFVG_Bullish) ||
-          (!isBull && overlayConfig.showFVG_Bearish) ||
-          (isMitigated && overlayConfig.showFVG_Mitigated);
+        const fvgSpecificActive = overlayConfig.showFVG_Bullish || overlayConfig.showFVG_Bearish || overlayConfig.showFVG_Mitigated;
+        let isFvgActive = false;
+        if (isMitigated) {
+          isFvgActive = !!overlayConfig.showFVG_Mitigated;
+        } else if (fvgSpecificActive) {
+          isFvgActive = (isBull && overlayConfig.showFVG_Bullish) || (!isBull && overlayConfig.showFVG_Bearish);
+        } else {
+          isFvgActive = !!(overlayConfig.showMarketStructure && overlayConfig.showFVG);
+        }
 
         if (!isFvgActive) return;
 
@@ -918,10 +926,15 @@ export const TradingChart: React.FC = () => {
         const isDemand = ob.direction === 'BULLISH';
         const isInvalidated = ob.status === 'INVALIDATED';
 
-        const isObActive = (overlayConfig.showMarketStructure && overlayConfig.showOrderBlocks) ||
-          (isDemand && overlayConfig.showOB_Bullish) ||
-          (!isDemand && overlayConfig.showOB_Bearish) ||
-          (isInvalidated && overlayConfig.showOB_Mitigated);
+        const obSpecificActive = overlayConfig.showOB_Bullish || overlayConfig.showOB_Bearish || overlayConfig.showOB_Mitigated;
+        let isObActive = false;
+        if (isInvalidated) {
+          isObActive = !!overlayConfig.showOB_Mitigated;
+        } else if (obSpecificActive) {
+          isObActive = (isDemand && overlayConfig.showOB_Bullish) || (!isDemand && overlayConfig.showOB_Bearish);
+        } else {
+          isObActive = !!(overlayConfig.showMarketStructure && overlayConfig.showOrderBlocks);
+        }
 
         if (!isObActive) return;
 
@@ -975,10 +988,12 @@ export const TradingChart: React.FC = () => {
     // 5I. MARKET STRUCTURE EVENTS (BOS / CHoCH / COC)
     if (prediction.structureEvents && prediction.structureEvents.length > 0) {
       prediction.structureEvents.forEach(ev => {
-        const isEventActive = overlayConfig.showMarketStructure ||
-          (ev.type === 'BOS' && overlayConfig.showMS_BOS) ||
-          (ev.type === 'CHoCH' && overlayConfig.showMS_CHoCH) ||
-          (ev.type === 'COC' && overlayConfig.showMS_CoC);
+        const anyMsEventSet = overlayConfig.showMS_BOS || overlayConfig.showMS_CHoCH || overlayConfig.showMS_CoC;
+        const isEventActive = anyMsEventSet
+          ? ((ev.type === 'BOS' && overlayConfig.showMS_BOS) ||
+             (ev.type === 'CHoCH' && overlayConfig.showMS_CHoCH) ||
+             (ev.type === 'COC' && overlayConfig.showMS_CoC))
+          : !!overlayConfig.showMarketStructure;
 
         if (!isEventActive) return;
 
@@ -1034,10 +1049,12 @@ export const TradingChart: React.FC = () => {
     // Structure Points (HH, HL, LH, LL, Swings)
     if (prediction.structurePoints && prediction.structurePoints.length > 0) {
       prediction.structurePoints.forEach(pt => {
-        const isPointActive = overlayConfig.showMarketStructure ||
-          ((pt.type === 'SWING_HIGH' || pt.type === 'SWING_LOW') && overlayConfig.showMS_Swings) ||
-          ((pt.type === 'HH' || pt.type === 'HL') && overlayConfig.showMS_HH_HL) ||
-          ((pt.type === 'LH' || pt.type === 'LL') && overlayConfig.showMS_LH_LL);
+        const anyMsPointSet = overlayConfig.showMS_Swings || overlayConfig.showMS_HH_HL || overlayConfig.showMS_LH_LL;
+        const isPointActive = anyMsPointSet
+          ? (((pt.type === 'SWING_HIGH' || pt.type === 'SWING_LOW') && overlayConfig.showMS_Swings) ||
+             ((pt.type === 'HH' || pt.type === 'HL') && overlayConfig.showMS_HH_HL) ||
+             ((pt.type === 'LH' || pt.type === 'LL') && overlayConfig.showMS_LH_LL))
+          : !!overlayConfig.showMarketStructure;
 
         if (!isPointActive) return;
 
@@ -1070,6 +1087,7 @@ export const TradingChart: React.FC = () => {
 
     // 5J. CANDLESTICK PATTERN LABELS - Strictly verified against actual OHLC formula
     if (prediction.patterns && prediction.patterns.length > 0) {
+      const anyPatternSpecificSet = ALL_PATTERN_KEYS.some(k => !!overlayConfig[k]);
       const patternKeyToConfig: Record<string, keyof ChartOverlayConfig> = {
         DOJI: 'showPatternDoji',
         HAMMER: 'showPatternHammer',
@@ -1101,7 +1119,11 @@ export const TradingChart: React.FC = () => {
         const configKey = pat.patternKey ? patternKeyToConfig[pat.patternKey] : undefined;
         const isPatternEnabled = configKey ? !!overlayConfig[configKey] : false;
 
-        if (!isPatternEnabled && !overlayConfig.showCandlePatterns) return;
+        if (anyPatternSpecificSet) {
+          if (!isPatternEnabled) return;
+        } else if (!overlayConfig.showCandlePatterns) {
+          return;
+        }
 
         if (pat.candleIndex >= startBar && pat.candleIndex <= endBar) {
           const c = candles[pat.candleIndex];

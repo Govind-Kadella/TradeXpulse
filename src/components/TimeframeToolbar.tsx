@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePredictionState } from '../context/PredictionStateContext';
 import { Timeframe } from '../types';
+import { TEMPLATE_LIST } from '../services/templateService';
 import { 
   BarChart2, 
   Layers, 
@@ -39,12 +40,30 @@ export const TimeframeToolbar: React.FC = () => {
     zoomOut,
     resetView,
     isChartFullscreen,
-    toggleChartFullscreen
+    toggleChartFullscreen,
+    activeTemplate,
+    applyTemplate
   } = usePredictionState();
   const [activeModal, setActiveModal] = useState<'indicators' | 'templates' | 'alert' | 'replay' | 'marketStructure' | null>(null);
   const [alertActive, setAlertActive] = useState<boolean>(false);
   const [replaySpeed, setReplaySpeed] = useState<string>('1x');
   const [activeCursorTool, setActiveCursorTool] = useState<'pointer' | 'draw'>('pointer');
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Close open dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        setActiveModal(null);
+      }
+    };
+    if (activeModal) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [activeModal]);
 
   const timeframes: { tf: Timeframe; label: string; isPrimary?: boolean }[] = [
     { tf: 'M1', label: 'M1' },
@@ -56,7 +75,7 @@ export const TimeframeToolbar: React.FC = () => {
   ];
 
   return (
-    <div className="h-10 border-b border-[#1B2537] bg-[#0A0F1D] px-3 flex items-center justify-between text-xs select-none shrink-0 relative z-40 font-sans">
+    <div ref={toolbarRef} className="h-10 border-b border-[#1B2537] bg-[#0A0F1D] px-3 flex items-center justify-between text-xs select-none shrink-0 relative z-40 font-sans">
       {/* Timeframes & Quick Tools */}
       <div className="flex gap-1 h-full items-center min-w-0">
         <div className="flex gap-1 h-full items-center overflow-x-auto no-scrollbar shrink-0">
@@ -176,7 +195,7 @@ export const TimeframeToolbar: React.FC = () => {
           <button
             id="toolbar-templates-btn"
             onClick={() => setActiveModal(activeModal === 'templates' ? null : 'templates')}
-            className={`px-2 py-1 flex items-center gap-1.5 text-[11px] font-bold rounded transition-colors cursor-pointer ${
+            className={`px-2 py-1 flex items-center gap-1.5 text-[11px] font-bold rounded transition-colors cursor-pointer select-none ${
               activeModal === 'templates'
                 ? 'bg-[#152033] text-cyan-400'
                 : 'text-slate-400 hover:text-white hover:bg-[#121A2B]'
@@ -184,33 +203,50 @@ export const TimeframeToolbar: React.FC = () => {
           >
             <Layers className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Templates</span>
+            <ChevronDown
+              className={`w-3 h-3 transition-transform duration-150 ${
+                activeModal === 'templates' ? 'rotate-180 text-cyan-400' : 'text-slate-400'
+              }`}
+            />
           </button>
 
           {activeModal === 'templates' && (
-            <div className="absolute left-0 mt-1 w-48 bg-[#0E1524] border border-[#1F2C40] rounded-lg shadow-2xl p-2 z-40">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pb-1 border-b border-[#1F2C40]">
-                Layout Templates
+            <div className="absolute left-0 mt-1 w-56 bg-[#0E1524] border border-[#1F2C40] rounded-lg shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pb-1 border-b border-[#1F2C40] flex items-center justify-between">
+                <span>Layout Templates</span>
+                {activeTemplate === 'CUSTOM' && (
+                  <span className="text-[9px] font-mono text-amber-400 px-1 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-semibold">
+                    Custom
+                  </span>
+                )}
               </div>
               <div className="space-y-1">
-                <button
-                  onClick={() => setActiveModal(null)}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-between"
-                >
-                  <span>TradeXpulse AI Pro</span>
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setActiveModal(null)}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-slate-300 hover:bg-[#152033]"
-                >
-                  Pure Price Action
-                </button>
-                <button
-                  onClick={() => setActiveModal(null)}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-slate-300 hover:bg-[#152033]"
-                >
-                  Institutional Levels
-                </button>
+                {TEMPLATE_LIST.map((tmpl) => {
+                  const isActive = activeTemplate === tmpl.id;
+                  return (
+                    <button
+                      key={tmpl.id}
+                      id={`template-btn-${tmpl.id.toLowerCase().replace(/_/g, '-')}`}
+                      onClick={() => {
+                        applyTemplate(tmpl.id);
+                        setActiveModal(null);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors flex items-center justify-between group cursor-pointer ${
+                        isActive
+                          ? 'text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 font-semibold shadow-sm'
+                          : 'text-slate-300 hover:text-white hover:bg-[#152033] border border-transparent'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="leading-tight">{tmpl.name}</span>
+                        <span className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5 group-hover:text-slate-300">
+                          {tmpl.badge}
+                        </span>
+                      </div>
+                      {isActive && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-2" />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
