@@ -24,7 +24,10 @@ import {
   RiskConfig,
   RiskEvaluationResult,
   sanitizeTimeframe,
-  ChartTemplate
+  ChartTemplate,
+  StrategyDefinition,
+  BacktestResult,
+  BacktestConfig
 } from '../types';
 import { MarketDataService, MARKET_META } from '../services/marketDataService';
 import { AnalysisEngine } from '../services/analysisEngine';
@@ -32,12 +35,25 @@ import { RealtimeMarketClient } from '../services/realtimeMarketClient';
 import { TwelveDataMarketService, SymbolMarketState } from '../services/TwelveDataMarketService';
 import { PaperExecutionAdapter, RiskEngine } from '../services/executionProvider';
 import { ChartViewportEngine } from '../services/chartViewportEngine';
+import { AiSignalService } from '../services/aiSignalService';
+import { DEFAULT_STRATEGY } from '../services/strategyStorage';
+import { BacktestEngine } from '../services/backtestEngine';
 import {
   CHART_TEMPLATES,
   TEMPLATE_STORAGE_KEY,
   OVERLAY_STORAGE_KEY,
   applyTemplateToConfig,
 } from '../services/templateService';
+
+export type ActiveDropdownId = 
+  | 'symbol'
+  | 'indicators'
+  | 'templates'
+  | 'alerts'
+  | 'marketStructure'
+  | 'marketPrediction'
+  | 'replay'
+  | null;
 
 interface PredictionStateContextType {
   // Navigation & Selections
@@ -93,6 +109,11 @@ interface PredictionStateContextType {
   setIsChartFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
   toggleChartFullscreen: () => void;
   
+  // Shared Dropdown Overlay Layer Control
+  activeDropdown: ActiveDropdownId;
+  setActiveDropdown: React.Dispatch<React.SetStateAction<ActiveDropdownId>>;
+  closeAllDropdowns: () => void;
+
   // Chart Display Controls
   overlayConfig: ChartOverlayConfig;
   setOverlayConfig: React.Dispatch<React.SetStateAction<ChartOverlayConfig>>;
@@ -122,6 +143,18 @@ interface PredictionStateContextType {
   stagedOrder: OrderRequest | null;
   setStagedOrder: React.Dispatch<React.SetStateAction<OrderRequest | null>>;
   stageTradeFromPrediction: () => void;
+  // Strategy & Backtesting System
+  activeStrategy: StrategyDefinition;
+  setActiveStrategy: React.Dispatch<React.SetStateAction<StrategyDefinition>>;
+  activeBacktestResult: BacktestResult | null;
+  setActiveBacktestResult: React.Dispatch<React.SetStateAction<BacktestResult | null>>;
+  backtestStatus: 'IDLE' | 'LOADING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  setBacktestStatus: React.Dispatch<React.SetStateAction<'IDLE' | 'LOADING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'>>;
+  backtestError: string | null;
+  setBacktestError: React.Dispatch<React.SetStateAction<string | null>>;
+  isStrategyModifiedSinceBacktest: boolean;
+  setIsStrategyModifiedSinceBacktest: React.Dispatch<React.SetStateAction<boolean>>;
+  runBacktestSimulation: (strategy?: StrategyDefinition, configOverrides?: Partial<BacktestConfig>) => Promise<BacktestResult | null>;
 }
 
 export const ALL_MARKET_STRUCTURE_KEYS: (keyof ChartOverlayConfig)[] = [
@@ -218,6 +251,12 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [activeBias, setActiveBias] = useState<BiasType>('BULLISH');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+
+  // Shared dropdown overlay manager - only one top-level toolbar dropdown open at a time
+  const [activeDropdown, setActiveDropdown] = useState<ActiveDropdownId>(null);
+  const closeAllDropdowns = useCallback(() => {
+    setActiveDropdown(null);
+  }, []);
 
   // Template and Overlay Settings with Session Persistence
   const [activeTemplate, setActiveTemplate] = useState<ChartTemplate>(() => {
@@ -428,6 +467,13 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     const unsubTick = client.onTick((tick: PriceTick & { m5Countdown?: { remainingSeconds: number; countdownText: string } }) => {
       // Feed execution adapter for simulated fill and mark-to-market valuation
       executionAdapterRef.current.handlePriceTick(tick.symbol, tick.price);
+
+      // Evaluate active AI Signals against live tick (detect TP/SL/invalidation)
+      try {
+        AiSignalService.getInstance().evaluateTickUpdate(tick.symbol, tick.price);
+      } catch (e) {
+        // ignore
+      }
 
       if (tick.symbol !== activeSymbolRef.current) return;
       setLastTickTimestamp(tick.timestamp);
@@ -1116,6 +1162,71 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
     setStagedOrder(newStaged);
   }, [prediction, activeSymbol, marketOverview.digits]);
 
+  // Strategy & Backtesting Engine State
+  const [activeStrategy, setActiveStrategy] = useState<StrategyDefinition>(() => {
+    return DEFAULT_STRATEGY;
+  });
+  const [activeBacktestResult, setActiveBacktestResult] = useState<BacktestResult | null>(null);
+  const [backtestStatus, setBacktestStatus] = useState<'IDLE' | 'LOADING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'>('IDLE');
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [isStrategyModifiedSinceBacktest, setIsStrategyModifiedSinceBacktest] = useState<boolean>(false);
+
+  const runBacktestSimulation = useCallback(async (
+    targetStrategy?: StrategyDefinition,
+    configOverrides?: Partial<BacktestConfig>
+  ): Promise<BacktestResult | null> => {
+    const strat = targetStrategy || activeStrategy;
+    setBacktestStatus('RUNNING');
+    setBacktestError(null);
+
+    try {
+      // Yield to event loop briefly so UI displays "Running backtest..." spinner smoothly
+      await new Promise(r => setTimeout(r, 200));
+
+      const config: BacktestConfig = {
+        initialCapital: 10000,
+        commissionType: 'PER_TRADE',
+        commissionValue: 2.0,
+        slippagePips: 0.5,
+        assumedSpreadPips: 1.5,
+        useHistoricalSpread: false,
+        intrabarPolicy: 'CONSERVATIVE_SL_FIRST',
+        executionModel: 'NEXT_BAR_OPEN',
+        ...configOverrides
+      };
+
+      // Get historical candles for strat.symbol and strat.timeframe
+      let simCandles = candles;
+      if (strat.symbol !== activeSymbol || strat.timeframe !== activeTimeframe) {
+        simCandles = MarketDataService.getInstance().getCandles(strat.symbol, strat.timeframe);
+      }
+
+      if (!simCandles || simCandles.length < 15) {
+        setBacktestStatus('FAILED');
+        setBacktestError('Insufficient historical candlestick data for evaluation (minimum 15 bars required).');
+        return null;
+      }
+
+      const res = BacktestEngine.runBacktest(strat, simCandles, config, activeBias);
+      setActiveBacktestResult(res);
+      setBacktestStatus('COMPLETED');
+      setIsStrategyModifiedSinceBacktest(false);
+      return res;
+    } catch (err: any) {
+      console.error('Backtest run error:', err);
+      setBacktestStatus('FAILED');
+      setBacktestError(err.message || 'Backtest execution failed due to an unexpected error.');
+      return null;
+    }
+  }, [activeStrategy, candles, activeSymbol, activeTimeframe, activeBias]);
+
+  // Run initial backtest once candles are ready if no result exists yet
+  useEffect(() => {
+    if (!activeBacktestResult && candles.length >= 15 && backtestStatus === 'IDLE') {
+      runBacktestSimulation(activeStrategy);
+    }
+  }, [candles.length, activeBacktestResult, backtestStatus, activeStrategy, runBacktestSimulation]);
+
   return (
     <PredictionStateContext.Provider
       value={{
@@ -1157,6 +1268,9 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         isChartFullscreen,
         setIsChartFullscreen,
         toggleChartFullscreen,
+        activeDropdown,
+        setActiveDropdown,
+        closeAllDropdowns,
         overlayConfig,
         setOverlayConfig,
         toggleOverlay,
@@ -1180,7 +1294,18 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         evaluateRisk,
         stagedOrder,
         setStagedOrder,
-        stageTradeFromPrediction
+        stageTradeFromPrediction,
+        activeStrategy,
+        setActiveStrategy,
+        activeBacktestResult,
+        setActiveBacktestResult,
+        backtestStatus,
+        setBacktestStatus,
+        backtestError,
+        setBacktestError,
+        isStrategyModifiedSinceBacktest,
+        setIsStrategyModifiedSinceBacktest,
+        runBacktestSimulation
       }}
     >
       {children}

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { usePredictionState } from '../context/PredictionStateContext';
 import { MarketSymbol } from '../types';
+import { ToolbarDropdown } from './ToolbarDropdown';
 import { 
   Compass, 
   LayoutDashboard, 
@@ -10,21 +11,32 @@ import {
   Bell, 
   Moon, 
   Sun,
-  ChevronDown
+  ChevronDown,
+  Check,
+  Zap,
+  History,
+  Cpu
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const { activeSymbol, setSymbol, activeView, setView, connectionStatus, marketDataStatus } = usePredictionState();
+  const { 
+    activeSymbol, 
+    setSymbol, 
+    activeView, 
+    setView, 
+    activeDropdown,
+    setActiveDropdown
+  } = usePredictionState();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
   const [isDark, setIsDark] = useState<boolean>(true);
-  const [symbolDropdownOpen, setSymbolDropdownOpen] = useState<boolean>(false);
+  const symbolBtnRef = useRef<HTMLButtonElement>(null);
 
   const markets: { symbol: MarketSymbol; label: string; sub?: string }[] = [
     { symbol: 'XAUUSD', label: 'XAUUSD', sub: 'Gold' },
-    { symbol: 'EURJPY', label: 'EURJPY' },
-    { symbol: 'EURUSD', label: 'EURUSD' },
-    { symbol: 'GBPUSD', label: 'GBPUSD' },
+    { symbol: 'EURUSD', label: 'EURUSD', sub: 'EUR / USD' },
+    { symbol: 'GBPUSD', label: 'GBPUSD', sub: 'GBP / USD' },
+    { symbol: 'EURJPY', label: 'EURJPY', sub: 'EUR / JPY' },
   ];
 
   return (
@@ -52,12 +64,12 @@ export const Header: React.FC = () => {
 
         <div className="h-6 w-[1px] bg-[#1B2537] hidden md:block"></div>
 
-        {/* Global Navigation Tabs: Dashboard, Market Map, Execution, Settings */}
+        {/* Global Navigation Tabs: Dashboard, Market Map, AI Signals, Strategy Builder, Backtest, Execution, Settings */}
         <nav className="hidden lg:flex items-center gap-1" id="main-nav-tabs">
           <button
             id="nav-dashboard-tab"
             onClick={() => setView('dashboard')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'dashboard'
                 ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
                 : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
@@ -69,7 +81,7 @@ export const Header: React.FC = () => {
           <button
             id="nav-marketmap-tab"
             onClick={() => setView('marketMap')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'marketMap'
                 ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
                 : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
@@ -79,9 +91,45 @@ export const Header: React.FC = () => {
             Market Map
           </button>
           <button
+            id="nav-aisignals-tab"
+            onClick={() => setView('aiSignals')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+              activeView === 'aiSignals'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            AI Signals
+          </button>
+          <button
+            id="nav-strategybuilder-tab"
+            onClick={() => setView('strategyBuilder')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+              activeView === 'strategyBuilder'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+            Strategy Builder
+          </button>
+          <button
+            id="nav-backtest-tab"
+            onClick={() => setView('backtest')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+              activeView === 'backtest'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
+            }`}
+          >
+            <History className="w-3.5 h-3.5 text-purple-400" />
+            Backtest
+          </button>
+          <button
             id="nav-execution-tab"
             onClick={() => setView('execution')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'execution'
                 ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
                 : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
@@ -93,7 +141,7 @@ export const Header: React.FC = () => {
           <button
             id="nav-settings-tab"
             onClick={() => setView('settings')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
               activeView === 'settings'
                 ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
                 : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
@@ -110,35 +158,59 @@ export const Header: React.FC = () => {
         {/* Quick Symbol Switcher Pill */}
         <div className="relative">
           <button
+            ref={symbolBtnRef}
             id="header-active-symbol-btn"
-            onClick={() => setSymbolDropdownOpen(!symbolDropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#111A2B] hover:bg-[#172338] border border-[#1F2C40] text-xs font-mono font-bold text-slate-200 transition-colors cursor-pointer"
+            onClick={() => setActiveDropdown(activeDropdown === 'symbol' ? null : 'symbol')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#111A2B] hover:bg-[#172338] border text-xs font-mono font-bold transition-all cursor-pointer ${
+              activeDropdown === 'symbol'
+                ? 'border-cyan-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.2)]'
+                : 'border-[#1F2C40] text-slate-200'
+            }`}
+            title="Select Currency Pair or Asset"
+            aria-expanded={activeDropdown === 'symbol'}
           >
             <span className="text-cyan-400">{activeSymbol}</span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
+            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-150 ${activeDropdown === 'symbol' ? 'rotate-180 text-cyan-400' : ''}`} />
           </button>
 
-          {symbolDropdownOpen && (
-            <div className="absolute left-0 mt-1 w-44 bg-[#0E1524] border border-[#1F2C40] rounded-lg shadow-2xl p-1 z-50">
-              {markets.map(m => (
-                <button
-                  key={m.symbol}
-                  onClick={() => {
-                    setSymbol(m.symbol);
-                    setSymbolDropdownOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-xs font-mono transition-colors cursor-pointer ${
-                    activeSymbol === m.symbol 
-                      ? 'bg-blue-600/20 text-cyan-300 font-bold' 
-                      : 'text-slate-400 hover:text-white hover:bg-[#152033]'
-                  }`}
-                >
-                  <span>{m.label}</span>
-                  {m.sub && <span className="text-[10px] text-slate-500 font-sans">{m.sub}</span>}
-                </button>
-              ))}
+          <ToolbarDropdown
+            id="symbol"
+            triggerRef={symbolBtnRef}
+            isOpen={activeDropdown === 'symbol'}
+            onClose={() => setActiveDropdown(null)}
+            className="w-48 p-1"
+          >
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1 border-b border-[#1F2C40] flex items-center justify-between">
+              <span>Select Symbol</span>
+              <span className="text-[9px] font-mono text-cyan-400 font-semibold">{markets.length} Pairs</span>
             </div>
-          )}
+            <div className="space-y-0.5">
+              {markets.map(m => {
+                const isSelected = activeSymbol === m.symbol;
+                return (
+                  <button
+                    key={m.symbol}
+                    id={`header-symbol-option-${m.symbol.toLowerCase()}`}
+                    onClick={() => {
+                      setSymbol(m.symbol);
+                      setActiveDropdown(null);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-xs font-mono transition-colors cursor-pointer ${
+                      isSelected 
+                        ? 'bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-bold' 
+                        : 'text-slate-300 hover:text-white hover:bg-[#152033] border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold">{m.label}</span>
+                      {m.sub && <span className="text-[10px] text-slate-500 font-sans">{m.sub}</span>}
+                    </div>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </ToolbarDropdown>
         </div>
 
         {/* Search Symbols Input */}

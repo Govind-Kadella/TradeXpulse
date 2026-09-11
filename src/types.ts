@@ -315,7 +315,7 @@ export interface ChartViewport {
   anchorPrice?: number;
 }
 
-export type ActiveView = 'dashboard' | 'marketMap' | 'execution' | 'settings';
+export type ActiveView = 'dashboard' | 'marketMap' | 'aiSignals' | 'execution' | 'settings' | 'strategyBuilder' | 'backtest';
 
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP';
 export type OrderSide = 'BUY' | 'SELL';
@@ -567,4 +567,522 @@ export interface ChartTemplateDefinition {
   description: string;
   overlays: Partial<ChartOverlayConfig>;
 }
+
+export type AssetCategory = 'All Assets' | 'Forex' | 'Commodities' | 'Indices' | 'Crypto' | 'Stocks';
+
+export type HeatmapMode = 'PRICE_CHANGE' | 'AI_SIGNAL' | 'VOLATILITY' | 'CUSTOM';
+
+export type ViewLayoutMode = 'GRID' | 'LIST';
+
+export interface ScannerInstrument {
+  symbol: string;
+  name: string;
+  category: 'Forex' | 'Commodities' | 'Indices' | 'Crypto' | 'Stocks';
+  price: number;
+  change24h: number;
+  changePercent24h: number;
+  direction: BiasType;
+  confidence: number;
+  trendH1: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  trendH4: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  volatility: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
+  atr14: number;
+  opportunityScore: number;
+  setupSummary: string;
+  support: number;
+  resistance: number;
+  digits: number;
+  sparkline: number[];
+  lastUpdate: string;
+  isCoreLive: boolean;
+}
+
+export interface SentimentMetrics {
+  bullishCount: number;
+  bearishCount: number;
+  neutralCount: number;
+  total: number;
+  bullishPercent: number;
+  bearishPercent: number;
+  neutralPercent: number;
+}
+
+export interface FearGreedIndexData {
+  score: number;
+  zone: 'Extreme Fear' | 'Fear' | 'Neutral' | 'Greed' | 'Extreme Greed';
+  breadthScore: number;
+  momentumScore: number;
+  volatilityScore: number;
+  confluenceScore: number;
+  lastUpdated: string;
+}
+
+// ============================================================================
+// PAGE 3: AI SIGNALS ARCHITECTURE
+// ============================================================================
+
+export type SignalDirection = 'BUY' | 'SELL' | 'NO_TRADE';
+
+export type SignalStatus =
+  | 'ACTIVE'
+  | 'VALID'
+  | 'EXPIRED'
+  | 'INVALIDATED'
+  | 'TARGET_HIT'
+  | 'STOP_HIT'
+  | 'CLOSED';
+
+export type SignalOutcomeResult =
+  | 'WIN'
+  | 'LOSS'
+  | 'BREAKEVEN'
+  | 'EXPIRED'
+  | 'INVALIDATED'
+  | 'OPEN';
+
+export interface SignalEvidence {
+  higherTimeframeTrend?: string;
+  marketStructure?: string;
+  momentum?: string;
+  volatility?: string;
+  volume?: string;
+  sentiment?: string;
+  supportResistance?: string;
+  fvg?: string;
+  orderBlock?: string;
+  liquidity?: string;
+  newsImpact?: string;
+  bullishFactors: string[];
+  bearishFactors: string[];
+}
+
+export interface SignalOutcome {
+  result: SignalOutcomeResult;
+  exitPrice?: number;
+  pnlPoints?: number;
+  pnlPercent?: number;
+  closedAt?: number;
+  durationMs?: number;
+  durationText?: string;
+  mfe?: number; // Maximum Favorable Excursion
+  mae?: number; // Maximum Adverse Excursion
+}
+
+export interface AISignal {
+  id: string;
+  symbol: string; // e.g. 'XAUUSD'
+  displayName: string; // 'Gold Spot / US Dollar'
+  category: 'Forex' | 'Commodities' | 'Indices' | 'Crypto' | 'Stocks';
+  timeframe: Timeframe;
+  direction: SignalDirection;
+  confidence: number; // 0-100 model confidence (NOT certainty)
+  qualityScore: number; // 0-100 deterministic Signal Quality Score
+  currentPrice: number;
+  entry: number;
+  entryZone: {
+    min: number;
+    max: number;
+    text: string;
+  };
+  stopLoss: number;
+  takeProfits: number[];
+  riskReward: string; // e.g. "1:3.1"
+  rrRatio: number; // e.g. 3.1
+  generatedAt: number;
+  validUntil: number;
+  lastUpdatedAt: number;
+  status: SignalStatus;
+  evidence: SignalEvidence;
+  reasoning: {
+    trend: string;
+    keySupport: number;
+    keyResistance: number;
+    marketStructure: string;
+    volume: string;
+    sentiment: string;
+    outlook: string;
+  };
+  invalidation: string;
+  outcome?: SignalOutcome;
+  isFavorite?: boolean;
+}
+
+export interface SignalKpis {
+  activeSignalsCount: number;
+  winRate30d: number | null; // e.g. 72% or null if N/A
+  avgRiskReward: string; // e.g. "1:2.8" or "N/A"
+  totalSignals30d: number;
+  avgAiConfidence: number; // e.g. 87%
+  marketBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+}
+
+export interface SignalAlertConfig {
+  buySignals: boolean;
+  sellSignals: boolean;
+  highConfidenceOnly: boolean;
+  minConfidence: number;
+  symbols: string[];
+  timeframes: Timeframe[];
+  inAppNotifications: boolean;
+  soundAlerts: boolean;
+}
+
+export interface MarketNewsItem {
+  id: string;
+  time: string;
+  timestamp: number;
+  headline: string;
+  summary: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+  sentiment: 'Bullish' | 'Bearish' | 'Neutral';
+  relatedSymbols: string[];
+  source: string;
+}
+
+export interface SymbolPerformanceStat {
+  symbol: string;
+  signals: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  avgRR: string;
+  pnlPoints: number;
+}
+
+export interface TimeframePerformanceStat {
+  timeframe: Timeframe;
+  signals: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  avgConfidence: number;
+  avgRR: string;
+}
+
+// ============================================================================
+// PAGE 4: STRATEGY BUILDER & BACKTEST ARCHITECTURE
+// ============================================================================
+
+export type StrategyDirection = 'LONG_ONLY' | 'SHORT_ONLY' | 'BOTH';
+
+export type ConditionSourceType = 'INDICATOR' | 'PRICE' | 'PRICE_ACTION' | 'MARKET_STRUCTURE';
+
+export type IndicatorKey =
+  | 'SMA'
+  | 'EMA'
+  | 'WMA'
+  | 'RSI'
+  | 'MACD'
+  | 'ATR'
+  | 'BOLLINGER'
+  | 'STOCHASTIC'
+  | 'ADX'
+  | 'VWAP'
+  | 'VOLUME';
+
+export type PriceKey =
+  | 'OPEN'
+  | 'HIGH'
+  | 'LOW'
+  | 'CLOSE'
+  | 'PREVIOUS_CLOSE'
+  | 'HIGH_LOW_RANGE';
+
+export type MarketStructureConditionKey =
+  | 'BOS'
+  | 'CHOCH'
+  | 'FVG'
+  | 'ORDER_BLOCK'
+  | 'LIQUIDITY_SWEEP'
+  | 'EQH'
+  | 'EQL'
+  | 'HH'
+  | 'HL'
+  | 'LH'
+  | 'LL';
+
+export type ConditionOperator =
+  | '>'
+  | '<'
+  | '>='
+  | '<='
+  | '='
+  | '!='
+  | 'crosses_above'
+  | 'crosses_below'
+  | 'inside'
+  | 'outside'
+  | 'increases'
+  | 'decreases';
+
+export type ConditionTargetType =
+  | 'VALUE'
+  | 'INDICATOR'
+  | 'PRICE'
+  | 'PATTERN'
+  | 'STRUCTURE';
+
+export interface StrategyCondition {
+  id: string;
+  sourceType: ConditionSourceType;
+  indicator?: IndicatorKey;
+  indicatorPeriod?: number; // e.g. 50, 200, 14
+  indicatorSubKey?: 'LINE' | 'SIGNAL' | 'HISTOGRAM' | 'UPPER' | 'LOWER' | 'MIDDLE' | 'K' | 'D';
+  priceKey?: PriceKey;
+  patternKey?: CandlePatternKey;
+  structureKey?: MarketStructureConditionKey;
+  structureDirection?: 'BULLISH' | 'BEARISH';
+  operator: ConditionOperator;
+  targetType: ConditionTargetType;
+  targetValue?: number; // e.g. 50, 1.5
+  targetIndicator?: IndicatorKey;
+  targetIndicatorPeriod?: number; // e.g. 200
+  targetIndicatorSubKey?: string;
+  targetPriceKey?: PriceKey;
+  targetPattern?: CandlePatternKey;
+  targetStructure?: string;
+  customLabel?: string;
+}
+
+export type ConditionGroupLogic = 'ALL' | 'ANY';
+
+export type ExitType =
+  | 'TAKE_PROFIT'
+  | 'STOP_LOSS'
+  | 'TRAILING_STOP'
+  | 'INDICATOR_EXIT'
+  | 'PRICE_ACTION_EXIT'
+  | 'MARKET_STRUCTURE_EXIT'
+  | 'TIME_EXIT';
+
+export type ExitMode =
+  | 'R_MULTIPLE'
+  | 'ATR_MULTIPLE'
+  | 'PERCENTAGE'
+  | 'FIXED_PRICE'
+  | 'POINTS';
+
+export interface StrategyExit {
+  id: string;
+  type: ExitType;
+  mode: ExitMode;
+  value: number; // e.g. 2.0 (for 2R), 1.0 (for 1R), 1.5 (for 1.5x ATR)
+  condition?: StrategyCondition; // For indicator / PA / Structure exits
+  timeBars?: number; // For time-based exit
+}
+
+export type SessionFilterType = 'ALL' | 'ASIAN' | 'LONDON' | 'NEW_YORK' | 'LONDON_NEW_YORK' | 'CUSTOM';
+
+export interface StrategyFilter {
+  id: string;
+  type:
+    | 'SESSION'
+    | 'NEWS'
+    | 'MIN_ATR'
+    | 'MAX_ATR'
+    | 'MAX_SPREAD'
+    | 'MAX_OPEN_TRADES'
+    | 'DAY_OF_WEEK'
+    | 'VOLATILITY'
+    | 'HTF_TREND';
+  session?: SessionFilterType;
+  customSessionStartUtc?: number; // 0-23
+  customSessionEndUtc?: number; // 0-23
+  newsBlackoutMinutes?: number; // e.g. 30 minutes before/after
+  minAtrValue?: number;
+  maxAtrValue?: number;
+  maxSpreadValue?: number;
+  maxOpenTrades?: number;
+  allowedDays?: number[]; // [1, 2, 3, 4, 5] Mon-Fri
+  htfTimeframe?: 'H1' | 'H4' | 'D1';
+  enabled: boolean;
+}
+
+export interface AdvancedStrategyOptions {
+  useAiMarketBiasFilter: boolean;
+  aiBiasMode: 'STRICT_DIRECTION' | 'ALLOW_IF_NOT_OPPOSING' | 'BLOCK_NO_TRADE';
+  enableTrailingStop: boolean;
+  trailingStopDistanceR: number; // e.g. 1.0R
+  enableBreakEven: boolean;
+  breakEvenTriggerR: number; // e.g. 1.0R
+  breakEvenOffsetR: number; // e.g. 0.0R
+  customRiskPerTradePercent: number; // e.g. 1.0%
+  intrabarPolicy: 'CONSERVATIVE_SL_FIRST' | 'AMBIGUOUS';
+  executionModel: 'NEXT_BAR_OPEN' | 'BAR_CLOSE';
+}
+
+export interface RiskManagementSettings {
+  accountEquity: number; // default 10,000
+  riskPerTradePercent: number; // e.g. 1.0%
+  maxDailyLossPercent: number; // e.g. 5.0%
+  maxOpenTrades: number; // e.g. 1
+  defaultStopLossR: number; // e.g. 1.0
+  defaultTakeProfitR: number; // e.g. 2.0
+}
+
+export interface StrategyDefinition {
+  id: string;
+  name: string;
+  description?: string;
+  symbol: MarketSymbol;
+  timeframe: Timeframe;
+  direction: StrategyDirection;
+  conditionGroupLogic: ConditionGroupLogic;
+  entryConditions: StrategyCondition[];
+  exitConditions: StrategyExit[];
+  filters: StrategyFilter[];
+  advancedOptions: AdvancedStrategyOptions;
+  riskManagement: RiskManagementSettings;
+  createdAt: number;
+  updatedAt: number;
+  version: number;
+  isTemplate?: boolean;
+}
+
+export type CommissionType = 'NONE' | 'PER_TRADE' | 'PERCENTAGE' | 'PER_UNIT';
+
+export interface BacktestConfig {
+  startDate?: number;
+  endDate?: number;
+  initialCapital: number;
+  commissionType: CommissionType;
+  commissionValue: number;
+  slippagePips: number;
+  assumedSpreadPips: number;
+  useHistoricalSpread: boolean;
+  intrabarPolicy: 'CONSERVATIVE_SL_FIRST' | 'AMBIGUOUS';
+  executionModel: 'NEXT_BAR_OPEN' | 'BAR_CLOSE';
+}
+
+export type BacktestTradeOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN';
+
+export interface BacktestTrade {
+  id: string;
+  tradeNumber: number;
+  symbol: MarketSymbol;
+  direction: 'BUY' | 'SELL';
+  entryTime: number;
+  exitTime: number;
+  entryPrice: number;
+  exitPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  lots: number;
+  pnl: number;
+  pnlPercent: number;
+  rMultiple: number;
+  outcome: BacktestTradeOutcome;
+  exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'INDICATOR_EXIT' | 'PRICE_ACTION_EXIT' | 'MARKET_STRUCTURE_EXIT' | 'TIME_EXIT' | 'SESSION_CLOSE';
+  entryReason: string;
+  durationMinutes: number;
+  mfe: number; // Maximum Favorable Excursion in price points
+  mae: number; // Maximum Adverse Excursion in price points
+  commission: number;
+  slippage: number;
+  spread: number;
+  entryConditionsMet: string[];
+}
+
+export interface MonthlyReturn {
+  year: number;
+  month: number; // 0 = Jan, 11 = Dec
+  pnl: number;
+  returnPercent: number;
+  trades: number;
+  winRate: number;
+}
+
+export interface BacktestMetrics {
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  breakevenTrades: number;
+  winRate: number; // percentage 0-100
+  profitFactor: number;
+  netProfit: number;
+  grossProfit: number;
+  grossLoss: number;
+  totalReturnPercent: number;
+  annualizedReturnPercent?: number;
+  maxDrawdown: number;
+  maxDrawdownPercent: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
+  calmarRatio?: number;
+  avgRR: string;
+  averageWin: number;
+  averageLoss: number;
+  bestTrade: number;
+  worstTrade: number;
+  winningStreak: number;
+  losingStreak: number;
+  avgDurationMinutes: number;
+  expectancy: number;
+}
+
+export interface EquityPoint {
+  time: number;
+  equity: number;
+  drawdown: number;
+  tradeIndex: number;
+}
+
+export interface BacktestAssumptions {
+  dataSource: string;
+  timeframe: Timeframe;
+  spread: number;
+  spreadType: 'HISTORICAL' | 'ASSUMED';
+  commission: number;
+  commissionType: string;
+  slippagePips: number;
+  executionModel: string;
+  intrabarPolicy: string;
+  startingCapital: number;
+  riskPerTrade: number;
+  totalCandlesEvaluated: number;
+  dateRange: { start: string; end: string };
+}
+
+export interface BlockedSignalRecord {
+  time: number;
+  timeFormatted: string;
+  price: number;
+  direction: 'BUY' | 'SELL';
+  reason: string;
+}
+
+export interface BacktestResult {
+  strategyId: string;
+  strategyName: string;
+  symbol: MarketSymbol;
+  timeframe: Timeframe;
+  executedAt: number;
+  metrics: BacktestMetrics;
+  trades: BacktestTrade[];
+  equityCurve: EquityPoint[];
+  monthlyReturns: MonthlyReturn[];
+  assumptions: BacktestAssumptions;
+  blockedSignalsLog: BlockedSignalRecord[];
+}
+
+export interface StrategyValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  contradictions: string[];
+}
+
+export interface StrategyTemplateItem {
+  id: string;
+  title: string;
+  category: 'Trend Following' | 'Mean Reversion' | 'Breakout' | 'Momentum' | 'Price Action' | 'Market Structure' | 'AI-Assisted';
+  description: string;
+  tags: string[];
+  complexity: 'Beginner' | 'Intermediate' | 'Advanced' | 'Institutional';
+  targetSymbol: MarketSymbol;
+  targetTimeframe: Timeframe;
+  strategy: StrategyDefinition;
+}
+
+
 

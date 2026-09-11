@@ -8,9 +8,13 @@ import { RightAiPanel } from './components/RightAiPanel';
 import { BottomMetrics } from './components/BottomMetrics';
 import { ResizeDivider } from './components/ResizeDivider';
 import { Footer } from './components/Footer';
+import { MarketOverview } from './components/MarketOverview';
 import { MarketMapView } from './components/MarketMapView';
+import { AiSignalsView } from './components/AiSignalsView';
 import { SettingsView } from './components/SettingsView';
 import { ExecutionView } from './components/ExecutionView';
+import { StrategyBuilderView } from './components/strategy/StrategyBuilderView';
+import { BacktestView } from './components/strategy/BacktestView';
 
 const MainLayout: React.FC = () => {
   const { activeView, isChartFullscreen } = usePredictionState();
@@ -36,14 +40,14 @@ const MainLayout: React.FC = () => {
       {!isChartFullscreen && <Header />}
 
       {/* Main Body with Sidebar + Workspace */}
-      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+      <div className="flex-1 flex overflow-hidden min-h-0 relative z-10">
         {/* Left Navigation Sidebar (Hidden in Fullscreen) */}
         {!isChartFullscreen && <Sidebar />}
 
         {/* Workspace Central Area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          {/* Primary Timeframe & Tooling Toolbar */}
-          <TimeframeToolbar />
+          {/* Primary Timeframe & Tooling Toolbar (Only on Dashboard/Chart view) */}
+          {activeView === 'dashboard' && <TimeframeToolbar />}
 
           {/* Dynamic Content Area */}
           <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden relative">
@@ -90,9 +94,15 @@ const MainLayout: React.FC = () => {
               </div>
             )}
 
-            {activeView === 'marketMap' && <MarketMapView />}
+            {activeView === 'marketMap' && <MarketOverview />}
+
+            {activeView === 'aiSignals' && <AiSignalsView />}
 
             {activeView === 'execution' && <ExecutionView />}
+
+            {activeView === 'strategyBuilder' && <StrategyBuilderView />}
+
+            {activeView === 'backtest' && <BacktestView />}
 
             {activeView === 'settings' && <SettingsView />}
           </div>

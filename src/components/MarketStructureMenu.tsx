@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { usePredictionState } from '../context/PredictionStateContext';
 import { ChartOverlayConfig } from '../types';
+import { ToolbarDropdown } from './ToolbarDropdown';
 import { 
   CheckSquare, 
   Square, 
@@ -19,6 +20,7 @@ import {
 interface MarketStructureMenuProps {
   isOpen: boolean;
   onClose: () => void;
+  triggerRef: React.RefObject<HTMLElement | null>;
 }
 
 interface ItemDefinition {
@@ -37,31 +39,8 @@ interface CategoryDefinition {
   items: ItemDefinition[];
 }
 
-export const MarketStructureMenu: React.FC<MarketStructureMenuProps> = ({ isOpen, onClose }) => {
+export const MarketStructureMenu: React.FC<MarketStructureMenuProps> = ({ isOpen, onClose, triggerRef }) => {
   const { overlayConfig, toggleOverlay, selectAllMarketStructure, clearAllMarketStructure } = usePredictionState();
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close on Escape or click outside
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -174,10 +153,12 @@ export const MarketStructureMenu: React.FC<MarketStructureMenuProps> = ({ isOpen
   });
 
   return (
-    <div
-      ref={menuRef}
-      id="market-structure-dropdown-panel"
-      className="absolute left-0 sm:left-auto top-full mt-1.5 w-80 sm:w-96 max-h-[82vh] bg-[#0A0F1A] border border-[#1F2937] rounded-lg shadow-2xl z-50 flex flex-col overflow-hidden text-slate-200 animate-in fade-in zoom-in-95 duration-150"
+    <ToolbarDropdown
+      id="marketStructure"
+      triggerRef={triggerRef}
+      isOpen={isOpen}
+      onClose={onClose}
+      className="w-80 sm:w-96 max-h-[82vh] bg-[#0A0F1A] border border-[#1F2937] p-0 flex flex-col overflow-hidden text-slate-200"
     >
       {/* Header */}
       <div className="p-3 border-b border-[#1F2937] bg-[#0E1524] flex items-center justify-between shrink-0">
@@ -283,6 +264,6 @@ export const MarketStructureMenu: React.FC<MarketStructureMenuProps> = ({ isOpen
         </div>
         <span className="text-slate-500">Tick-aware</span>
       </div>
-    </div>
+    </ToolbarDropdown>
   );
 };

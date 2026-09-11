@@ -19,23 +19,24 @@ import {
   PanelLeftOpen
 } from 'lucide-react';
 import { usePredictionState } from '../context/PredictionStateContext';
+import { ActiveView } from '../types';
 
 interface SidebarItem {
   id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  view?: 'dashboard' | 'marketMap' | 'execution' | 'settings';
+  view?: ActiveView;
 }
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'chart', label: 'Chart', icon: BarChart3, view: 'dashboard' },
   { id: 'market-overview', label: 'Market Overview', icon: Compass, view: 'marketMap' },
-  { id: 'ai-signals', label: 'AI Signals', icon: Zap },
+  { id: 'ai-signals', label: 'AI Signals', icon: Zap, view: 'aiSignals' },
   { id: 'watchlist', label: 'Watchlist', icon: Bookmark },
   { id: 'news-calendar', label: 'News & Calendar', icon: Calendar },
   { id: 'economic-data', label: 'Economic Data', icon: Database },
-  { id: 'strategy-builder', label: 'Strategy Builder', icon: Sliders },
-  { id: 'backtest', label: 'Backtest', icon: History },
+  { id: 'strategy-builder', label: 'Strategy Builder', icon: Sliders, view: 'strategyBuilder' },
+  { id: 'backtest', label: 'Backtest', icon: History, view: 'backtest' },
   { id: 'trade-journal', label: 'Trade Journal', icon: BookOpen },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'learning-hub', label: 'Learning Hub', icon: GraduationCap },
@@ -78,7 +79,10 @@ export const Sidebar: React.FC = () => {
 
         {SIDEBAR_ITEMS.map((item) => {
           const Icon = item.icon;
-          const isSelected = item.id === activeItem || (item.id === 'chart' && activeView === 'dashboard');
+          const isSelected = 
+            (activeView === 'marketMap' && item.id === 'market-overview') ||
+            (activeView === 'dashboard' && item.id === 'chart') ||
+            (item.view ? activeView === item.view : item.id === activeItem);
 
           return (
             <button
