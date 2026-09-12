@@ -23,7 +23,13 @@ import {
 } from '../../services/strategyStorage';
 import { AiStrategyGenerator, AiGenerationResult } from '../../services/aiStrategyGenerator';
 import { StrategyChartPreview } from './StrategyChartPreview';
-import { BacktestResultsView } from './BacktestResultsView';
+import { BacktestResultsSummaryCard } from './BacktestResultsSummaryCard';
+import { BacktestOverviewTab } from './BacktestOverviewTab';
+import { BacktestTradeListTab } from './BacktestTradeListTab';
+import { BacktestPerformanceTab } from './BacktestPerformanceTab';
+import { BacktestDrawdownTab } from './BacktestDrawdownTab';
+import { BacktestMonthlyReturnsTab } from './BacktestMonthlyReturnsTab';
+import { BacktestAssumptionsTab } from './BacktestAssumptionsTab';
 import {
   Sliders,
   Play,
@@ -47,7 +53,14 @@ import {
   Activity,
   ArrowRight,
   RefreshCw,
-  Search
+  Search,
+  BarChart3,
+  RotateCcw,
+  Calendar,
+  HelpCircle,
+  TrendingUp,
+  Zap,
+  Info
 } from 'lucide-react';
 
 const SUPPORTED_SYMBOLS: MarketSymbol[] = ['XAUUSD', 'EURUSD', 'GBPUSD', 'EURJPY'];
@@ -354,88 +367,74 @@ export const StrategyBuilderView: React.FC = () => {
     setBacktestResult(null);
   };
 
+  // Bottom tab selection
+  const [activeBottomTab, setActiveBottomTab] = useState<'overview' | 'trades' | 'performance' | 'drawdown' | 'monthly' | 'settings'>('overview');
+
+  // Drag and drop tracking for conditions
+  const [draggedEntryIdx, setDraggedEntryIdx] = useState<number | null>(null);
+  const [draggedExitIdx, setDraggedExitIdx] = useState<number | null>(null);
+  const [draggedFilterIdx, setDraggedFilterIdx] = useState<number | null>(null);
+
+  const moveEntryCondition = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= strategy.entryConditions.length) return;
+    const list = [...strategy.entryConditions];
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    setStrategy(prev => ({ ...prev, entryConditions: list }));
+    setHasUnsavedChanges(true);
+  };
+
+  const moveExitCondition = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= strategy.exitConditions.length) return;
+    const list = [...strategy.exitConditions];
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    setStrategy(prev => ({ ...prev, exitConditions: list }));
+    setHasUnsavedChanges(true);
+  };
+
+  const moveFilter = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= strategy.filters.length) return;
+    const list = [...strategy.filters];
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    setStrategy(prev => ({ ...prev, filters: list }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleResetStrategy = () => {
+    setStrategy({
+      ...DEFAULT_STRATEGY,
+      symbol: activeSymbol,
+      timeframe: activeTimeframe
+    });
+    setHasUnsavedChanges(false);
+    setSaveSuccessMessage('Strategy reset to default settings.');
+    setTimeout(() => setSaveSuccessMessage(null), 3000);
+    executeBacktest();
+  };
+
   return (
     <div id="strategy-builder-view" className="w-full flex-1 flex flex-col bg-[#0B101D] text-slate-100 overflow-y-auto">
       {/* 1. TOP HEADER BAR */}
-      <div className="px-6 py-4 border-b border-[#1B2537] bg-[#0E1526] flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-md">
+      <div className="px-6 py-4 border-b border-[#1B2537] bg-[#0E1526] flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-wider text-slate-100 uppercase">
-                  Strategy Builder
-                </h1>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold tracking-wider uppercase">
-                  Institutional No-Code Engine
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Create, test and optimize your trading strategies with zero coding. Use indicators, price action and AI filters.
-              </p>
-            </div>
-          </div>
+          <h1 className="text-xl font-bold tracking-wider text-slate-100 uppercase">
+            Strategy Builder
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Create, test and optimize your trading strategies with zero coding. Use indicators, price action and AI filters.
+          </p>
         </div>
 
-        {/* Right Header Selectors */}
-        <div className="flex items-center gap-3">
-          {/* Symbol Selector */}
-          <div className="flex items-center gap-1.5 bg-[#162036] rounded-lg px-2.5 py-1.5 border border-[#24334D]">
-            <span className="text-[11px] text-slate-400 font-medium">Market:</span>
-            <select
-              id="header-market-select"
-              value={activeSymbol}
-              onChange={e => {
-                const sym = e.target.value as MarketSymbol;
-                setSymbol(sym);
-                updateSetup('symbol', sym);
-              }}
-              className="bg-transparent text-xs font-mono font-bold text-cyan-300 focus:outline-none cursor-pointer"
-            >
-              {SUPPORTED_SYMBOLS.map(s => (
-                <option key={s} value={s} className="bg-[#162036] text-slate-100">
-                  {s}
-                </option>
-              ))}
-            </select>
+        {/* Right Quote */}
+        <div className="text-right hidden sm:block">
+          <div className="text-xs text-slate-300 font-medium italic">
+            &ldquo;Build rules. Trade with confidence.&rdquo;
           </div>
-
-          {/* Timeframe Selector */}
-          <div className="flex items-center gap-1.5 bg-[#162036] rounded-lg px-2.5 py-1.5 border border-[#24334D]">
-            <span className="text-[11px] text-slate-400 font-medium">Timeframe:</span>
-            <select
-              id="header-timeframe-select"
-              value={activeTimeframe}
-              onChange={e => {
-                const tf = e.target.value as Timeframe;
-                setTimeframe(tf);
-                updateSetup('timeframe', tf);
-              }}
-              className="bg-transparent text-xs font-mono font-bold text-cyan-300 focus:outline-none cursor-pointer"
-            >
-              {SUPPORTED_TIMEFRAMES.map(tf => (
-                <option key={tf} value={tf} className="bg-[#162036] text-slate-100">
-                  {tf}
-                </option>
-              ))}
-            </select>
+          <div className="text-[11px] text-cyan-400/90 font-mono mt-0.5">
+            — TradeXpulse
           </div>
-
-          {/* Save Strategy Button */}
-          <button
-            id="save-strategy-header-btn"
-            onClick={handleSaveStrategy}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all ${
-              hasUnsavedChanges
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white animate-pulse'
-                : 'bg-[#1B2537] hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{hasUnsavedChanges ? 'Save Changes *' : 'Save Strategy'}</span>
-          </button>
         </div>
       </div>
 
@@ -452,59 +451,118 @@ export const StrategyBuilderView: React.FC = () => {
         </div>
       )}
 
-      {/* 2. TOP BUILDER TABS */}
-      <div className="px-6 pt-4 border-b border-[#1B2537] bg-[#0E1526]/50 flex items-center gap-2">
-        <button
-          id="tab-create-strategy"
-          onClick={() => setActiveTab('create')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold tracking-wide border-b-2 transition-all ${
-            activeTab === 'create'
-              ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Create Strategy</span>
-        </button>
+      {/* 2. TOP BUILDER TABS & ACTION TOOLBAR */}
+      <div className="px-6 py-2.5 border-b border-[#1B2537] bg-[#0A101D] flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-md">
+        {/* Left: Navigation Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+          <button
+            id="tab-create-strategy"
+            onClick={() => setActiveTab('create')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'create'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#131B2E]'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Create Strategy</span>
+          </button>
 
-        <button
-          id="tab-my-strategies"
-          onClick={() => setActiveTab('myStrategies')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold tracking-wide border-b-2 transition-all ${
-            activeTab === 'myStrategies'
-              ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <FolderKanban className="w-3.5 h-3.5" />
-          <span>My Strategies ({savedStrategies.length})</span>
-        </button>
+          <button
+            id="tab-my-strategies"
+            onClick={() => setActiveTab('myStrategies')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'myStrategies'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#131B2E]'
+            }`}
+          >
+            <FolderKanban className="w-3.5 h-3.5" />
+            <span>My Strategies ({savedStrategies.length})</span>
+          </button>
 
-        <button
-          id="tab-templates"
-          onClick={() => setActiveTab('templates')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold tracking-wide border-b-2 transition-all ${
-            activeTab === 'templates'
-              ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Strategy Templates ({STRATEGY_TEMPLATES.length})</span>
-        </button>
+          <button
+            id="tab-templates"
+            onClick={() => setActiveTab('templates')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'templates'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#131B2E]'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Strategy Templates</span>
+          </button>
 
-        <button
-          id="tab-ai-generator"
-          onClick={() => setActiveTab('generator')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold tracking-wide border-b-2 transition-all ${
-            activeTab === 'generator'
-              ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>AI Strategy Generator</span>
-        </button>
+          <button
+            id="tab-ai-generator"
+            onClick={() => setActiveTab('generator')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'generator'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#131B2E]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>AI Strategy Generator</span>
+          </button>
+        </div>
+
+        {/* Right: Quick Selectors and Save */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-[#131B2E] border border-[#24334D] rounded-lg px-2.5 py-1">
+            <span className="text-[11px] text-slate-400">Market:</span>
+            <select
+              id="header-market-select"
+              value={activeSymbol}
+              onChange={e => {
+                const sym = e.target.value as MarketSymbol;
+                setSymbol(sym);
+                updateSetup('symbol', sym);
+              }}
+              className="bg-transparent text-xs font-mono font-bold text-amber-300 focus:outline-none cursor-pointer"
+            >
+              {SUPPORTED_SYMBOLS.map(s => (
+                <option key={s} value={s} className="bg-[#131B2E] text-slate-100">
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-[#131B2E] border border-[#24334D] rounded-lg px-2.5 py-1">
+            <span className="text-[11px] text-slate-400">Timeframe:</span>
+            <select
+              id="header-timeframe-select"
+              value={activeTimeframe}
+              onChange={e => {
+                const tf = e.target.value as Timeframe;
+                setTimeframe(tf);
+                updateSetup('timeframe', tf);
+              }}
+              className="bg-transparent text-xs font-mono font-bold text-cyan-300 focus:outline-none cursor-pointer"
+            >
+              {SUPPORTED_TIMEFRAMES.map(tf => (
+                <option key={tf} value={tf} className="bg-[#131B2E] text-slate-100">
+                  {tf}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            id="save-strategy-header-btn"
+            onClick={handleSaveStrategy}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all ${
+              hasUnsavedChanges
+                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/30 animate-pulse'
+                : 'bg-blue-600/90 hover:bg-blue-600 text-white'
+            }`}
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>{hasUnsavedChanges ? 'Save Changes *' : 'Save Strategy'}</span>
+          </button>
+        </div>
       </div>
 
       {/* 3. MAIN BODY PER ACTIVE TAB */}

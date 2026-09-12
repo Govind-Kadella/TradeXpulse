@@ -46,22 +46,36 @@ export class MarketStructureEngine {
 
     for (let i = window; i < candles.length - window; i++) {
       const c = candles[i];
+      if (!c) continue;
       let isHigh = true;
       let isLow = true;
 
       for (let j = 1; j <= window; j++) {
-        if (candles[i - j].high >= c.high || candles[i + j].high > c.high) isHigh = false;
-        if (candles[i - j].low <= c.low || candles[i + j].low < c.low) isLow = false;
+        const left = candles[i - j];
+        const right = candles[i + j];
+        if (!left || !right) {
+          isHigh = false;
+          isLow = false;
+          break;
+        }
+        if (left.high >= c.high || right.high > c.high) isHigh = false;
+        if (left.low <= c.low || right.low < c.low) isLow = false;
       }
 
       // External check: 4-bar window
-      const isExternalHigh = i >= 4 && i < candles.length - 4 &&
-        c.high > candles[i - 3].high && c.high > candles[i - 4].high &&
-        c.high > candles[i + 3].high && c.high > candles[i + 4].high;
+      const left3 = candles[i - 3];
+      const left4 = candles[i - 4];
+      const right3 = candles[i + 3];
+      const right4 = candles[i + 4];
+      const has4Bars = Boolean(left3 && left4 && right3 && right4);
 
-      const isExternalLow = i >= 4 && i < candles.length - 4 &&
-        c.low < candles[i - 3].low && c.low < candles[i - 4].low &&
-        c.low < candles[i + 3].low && c.low < candles[i + 4].low;
+      const isExternalHigh = has4Bars &&
+        c.high > left3!.high && c.high > left4!.high &&
+        c.high > right3!.high && c.high > right4!.high;
+
+      const isExternalLow = has4Bars &&
+        c.low < left3!.low && c.low < left4!.low &&
+        c.low < right3!.low && c.low < right4!.low;
 
       if (isHigh) {
         points.push({

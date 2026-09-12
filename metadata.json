@@ -1,6 +1,6 @@
 {
   "name": "TradeXpulse",
-  "description": "AI Market Analyst and market-forecast visualization platform with interactive forecast overlays and predictive analytics.",
+  "description": "AI Market Analyst and trading terminal featuring interactive forecast overlays, real-time news, and global macroeconomic data workspaces.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

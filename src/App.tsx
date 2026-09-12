@@ -15,6 +15,8 @@ import { SettingsView } from './components/SettingsView';
 import { ExecutionView } from './components/ExecutionView';
 import { StrategyBuilderView } from './components/strategy/StrategyBuilderView';
 import { BacktestView } from './components/strategy/BacktestView';
+import { NewsCalendarView } from './components/NewsCalendarView';
+import { EconomicDataView } from './components/EconomicDataView';
 
 const MainLayout: React.FC = () => {
   const { activeView, isChartFullscreen } = usePredictionState();
@@ -103,6 +105,9 @@ const MainLayout: React.FC = () => {
             {activeView === 'strategyBuilder' && <StrategyBuilderView />}
 
             {activeView === 'backtest' && <BacktestView />}
+
+            {activeView === 'newsCalendar' && <NewsCalendarView />}
+            {activeView === 'economicData' && <EconomicDataView />}
 
             {activeView === 'settings' && <SettingsView />}
           </div>

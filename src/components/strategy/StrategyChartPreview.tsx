@@ -191,6 +191,12 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
     return path;
   };
 
+  const latestCandle = windowCandles[windowCandles.length - 1] || candles[candles.length - 1];
+  const prevCandle = windowCandles.length > 1 ? windowCandles[windowCandles.length - 2] : candles[candles.length - 2];
+  const priceChange = latestCandle && prevCandle ? latestCandle.close - prevCandle.close : 0;
+  const priceChangePct = prevCandle && prevCandle.close ? (priceChange / prevCandle.close) * 100 : 0;
+  const isUp = priceChange >= 0;
+
   return (
     <div
       ref={containerRef}
@@ -199,116 +205,71 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
         isFullscreen ? 'fixed inset-4 z-50 shadow-2xl' : 'w-full'
       }`}
     >
-      {/* Header bar */}
+      {/* Top Header bar with Legend on the right matching STRATEGY BUILDER.png */}
       <div className="px-4 py-3 border-b border-[#1B2537] flex items-center justify-between bg-[#111A30]">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-xs font-semibold text-slate-200 tracking-wide uppercase">
-              Strategy Chart Preview
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono font-bold">
-              {symbol}
-            </span>
-            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-              {timeframe}
-            </span>
-            <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">
-              {signalMarkers.length} Strategy Trigger{signalMarkers.length === 1 ? '' : 's'} Detected
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+          <h3 className="text-sm font-bold text-slate-100 tracking-wide">
+            Strategy Chart Preview
+          </h3>
         </div>
 
-        {/* Action controls */}
-        <div className="flex items-center gap-2">
-          {/* Zoom controls */}
-          <div className="flex items-center bg-[#162036] rounded-lg p-0.5 border border-[#24334D]">
-            <button
-              onClick={() => setVisibleBars(prev => Math.min(180, prev + 20))}
-              title="Zoom out (more bars)"
-              className="p-1 text-slate-400 hover:text-slate-100 hover:bg-slate-700/50 rounded"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-1.5 text-[10px] text-slate-400 font-mono">
-              {visibleBars} bars
-            </span>
-            <button
-              onClick={() => setVisibleBars(prev => Math.max(30, prev - 20))}
-              title="Zoom in (fewer bars)"
-              className="p-1 text-slate-400 hover:text-slate-100 hover:bg-slate-700/50 rounded"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
+        {/* Legend right aligned */}
+        <div className="flex items-center gap-3.5 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+            <span>Buy Signal</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+            <span>Sell Signal</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+            <span className="w-3.5 h-0.5 bg-cyan-400" />
+            <span>EMA 50</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+            <span className="w-3.5 h-0.5 bg-amber-400" />
+            <span>EMA 200</span>
           </div>
 
-          {onRunBacktest && (
+          <div className="flex items-center gap-1 pl-2 border-l border-slate-700">
             <button
-              onClick={onRunBacktest}
-              disabled={isRunningBacktest}
-              id="preview-run-backtest-btn"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
+              onClick={() => setIsFullscreen(prev => !prev)}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              className="p-1 text-slate-400 hover:text-slate-200 rounded"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRunningBacktest ? 'animate-spin' : ''}`} />
-              <span>{isRunningBacktest ? 'Simulating...' : 'Run Backtest'}</span>
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
-          )}
-
-          <button
-            onClick={() => setIsFullscreen(prev => !prev)}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
+          </div>
         </div>
       </div>
 
-      {/* Legend & Indicator Pills */}
-      <div className="px-4 py-2 border-b border-[#162036] bg-[#0C1221] flex flex-wrap items-center justify-between gap-2 text-[11px]">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>BUY Signal</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-rose-400 font-medium">
-            <span className="w-2 h-2 rounded-full bg-rose-400" />
-            <span>SELL Signal</span>
-          </div>
-          {hasEma50 && (
-            <div className="flex items-center gap-1.5 text-amber-400 font-mono">
-              <span className="w-3 h-0.5 bg-amber-400" />
-              <span>EMA 50</span>
-            </div>
-          )}
-          {hasEma200 && (
-            <div className="flex items-center gap-1.5 text-blue-400 font-mono">
-              <span className="w-3 h-0.5 bg-blue-400" />
-              <span>EMA 200</span>
-            </div>
-          )}
-          {hasEma20 && (
-            <div className="flex items-center gap-1.5 text-purple-400 font-mono">
-              <span className="w-3 h-0.5 bg-purple-400" />
-              <span>EMA 20</span>
-            </div>
-          )}
+      {/* Subheader bar matching STRATEGY BUILDER.png */}
+      <div className="px-4 py-2 border-b border-[#162036] bg-[#0A101D] flex flex-wrap items-center justify-between text-xs font-mono">
+        <div className="flex items-center gap-2 text-slate-300">
+          <span className="font-bold text-slate-100">{symbol}</span>
+          <span className="text-slate-500">·</span>
+          <span>{timeframe.replace('M', '')}</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-400">TradeXpulse</span>
         </div>
 
-        <div className="text-slate-400 flex items-center gap-2">
-          <span>{strategy.conditionGroupLogic === 'ALL' ? 'ALL conditions must match' : 'ANY condition triggers'}</span>
-          <span className="text-slate-600">|</span>
-          <span className="text-cyan-400 font-mono">
-            {visibleSignals.length} in view
-          </span>
-        </div>
+        {latestCandle && (
+          <div className="flex items-center gap-3 text-slate-400">
+            <span>O <strong className="text-slate-200 font-normal">{latestCandle.open.toFixed(meta.pricePrecision)}</strong></span>
+            <span>H <strong className="text-slate-200 font-normal">{latestCandle.high.toFixed(meta.pricePrecision)}</strong></span>
+            <span>L <strong className="text-slate-200 font-normal">{latestCandle.low.toFixed(meta.pricePrecision)}</strong></span>
+            <span>C <strong className="text-slate-200 font-normal">{latestCandle.close.toFixed(meta.pricePrecision)}</strong></span>
+            <span className={isUp ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+              {isUp ? '+' : ''}{priceChange.toFixed(meta.pricePrecision)} ({isUp ? '+' : ''}{priceChangePct.toFixed(2)}%)
+            </span>
+          </div>
+        )}
       </div>
 
       {/* SVG Canvas Chart Area */}
-      <div className="relative flex-1 min-h-[360px] bg-[#090E1A] overflow-hidden select-none">
+      <div className="relative flex-1 min-h-[340px] bg-[#070C16] overflow-hidden select-none">
         {windowCandles.length === 0 ? (
           <div className="h-full flex items-center justify-center text-slate-500 text-xs">
             Loading historical chart data...
@@ -326,19 +287,19 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               return (
                 <g key={`grid-${idx}`}>
                   <line
-                    x1={30}
+                    x1={20}
                     y1={y}
-                    x2={svgWidth - 55}
+                    x2={svgWidth - 65}
                     y2={y}
                     stroke="#162238"
-                    strokeDasharray="3 3"
+                    strokeDasharray="2 2"
                     strokeWidth="1"
                   />
                   <text
-                    x={svgWidth - 50}
-                    y={y + 4}
+                    x={svgWidth - 60}
+                    y={y + 3}
                     fill="#64748B"
-                    fontSize="10"
+                    fontSize="9.5"
                     fontFamily="monospace"
                   >
                     {priceAtY.toFixed(meta.pricePrecision)}
@@ -347,37 +308,23 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               );
             })}
 
-            {/* EMA Line Overlays */}
-            {hasEma200 && (
-              <path
-                d={getEmaPath(200)}
-                fill="none"
-                stroke="#3B82F6"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                opacity="0.85"
-              />
-            )}
-            {hasEma50 && (
-              <path
-                d={getEmaPath(50)}
-                fill="none"
-                stroke="#F59E0B"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                opacity="0.9"
-              />
-            )}
-            {hasEma20 && (
-              <path
-                d={getEmaPath(20)}
-                fill="none"
-                stroke="#A855F7"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                opacity="0.8"
-              />
-            )}
+            {/* EMA Line Overlays matching STRATEGY BUILDER.png (Cyan 50, Amber 200) */}
+            <path
+              d={getEmaPath(50)}
+              fill="none"
+              stroke="#06B6D4"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              opacity="0.95"
+            />
+            <path
+              d={getEmaPath(200)}
+              fill="none"
+              stroke="#F59E0B"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              opacity="0.95"
+            />
 
             {/* Candlesticks */}
             {windowCandles.map((c, idx) => {
@@ -393,7 +340,7 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
 
               return (
                 <g key={`candle-${idx}`}>
-                  {/* High - Low wick */}
+                  {/* Wick */}
                   <line
                     x1={x}
                     y1={yHigh}
@@ -418,12 +365,23 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               );
             })}
 
-            {/* Signal Markers & Badges */}
+            {/* Highlighted current price tag on the y-axis right side */}
+            {latestCandle && (
+              <g transform={`translate(${svgWidth - 65}, ${getY(latestCandle.close)})`}>
+                <line x1={- (svgWidth - 85)} y1={0} x2={0} y2={0} stroke="#10B981" strokeDasharray="3 3" strokeWidth="1" opacity="0.6" />
+                <rect x={0} y={-9} width={62} height={18} fill="#10B981" rx={3} />
+                <text x={31} y={3} fill="#000000" fontSize="9.5" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+                  {latestCandle.close.toFixed(meta.pricePrecision)}
+                </text>
+              </g>
+            )}
+
+            {/* Signal Markers & Badges (Buy below candle, Sell above candle) */}
             {visibleSignals.map((sig, sIdx) => {
               const localIdx = sig.index - startIndex;
               const x = getX(localIdx);
               const isBuy = sig.type === 'BUY';
-              const yAnchor = isBuy ? getY(sig.candle.low) + 16 : getY(sig.candle.high) - 16;
+              const yAnchor = isBuy ? getY(sig.candle.low) + 20 : getY(sig.candle.high) - 20;
               const isHovered = hoveredSignal?.index === sig.index;
 
               return (
@@ -442,65 +400,34 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
                   }}
                   onMouseLeave={() => setHoveredSignal(null)}
                 >
-                  {/* Vertical highlight line on trigger bar */}
-                  <line
-                    x1={x}
-                    y1={15}
-                    x2={x}
-                    y2={chartHeight}
-                    stroke={isBuy ? '#10B981' : '#F43F5E'}
-                    strokeWidth={isHovered ? '2' : '1'}
-                    strokeDasharray="2 2"
-                    opacity={isHovered ? '0.8' : '0.35'}
-                  />
-
-                  {/* Signal Icon & Pill */}
+                  {/* Signal Tag Pill */}
                   <g transform={`translate(${x}, ${yAnchor})`}>
-                    {/* Pulsing ring on hover */}
-                    {isHovered && (
-                      <circle
-                        r="18"
-                        fill={isBuy ? '#10B981' : '#F43F5E'}
-                        opacity="0.2"
-                        className="animate-ping"
-                      />
-                    )}
-                    {/* Main badge */}
-                    <circle
-                      r="12"
-                      fill={isBuy ? '#064E3B' : '#881337'}
-                      stroke={isBuy ? '#10B981' : '#F43F5E'}
-                      strokeWidth="2"
-                    />
-                    <path
-                      d={
-                        isBuy
-                          ? 'M -4 2 L 0 -3 L 4 2 Z'
-                          : 'M -4 -2 L 0 3 L 4 -2 Z'
-                      }
+                    <rect
+                      x={-16}
+                      y={-8}
+                      width={32}
+                      height={16}
+                      rx={8}
                       fill={isBuy ? '#10B981' : '#F43F5E'}
                     />
+                    <text
+                      x={0}
+                      y={3.5}
+                      fill="#FFFFFF"
+                      fontSize="9"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                    >
+                      {isBuy ? 'Buy' : 'Sell'}
+                    </text>
                   </g>
-
-                  {/* Entry Price Tag */}
-                  <text
-                    x={x}
-                    y={isBuy ? yAnchor + 22 : yAnchor - 14}
-                    fill={isBuy ? '#34D399' : '#FB7185'}
-                    fontSize="9"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                    textAnchor="middle"
-                  >
-                    {isBuy ? 'BUY' : 'SELL'} @ {sig.price.toFixed(meta.pricePrecision)}
-                  </text>
                 </g>
               );
             })}
 
             {/* Time labels on bottom axis */}
             {windowCandles.map((c, idx) => {
-              if (idx % Math.max(5, Math.floor(windowCandles.length / 8)) !== 0) return null;
+              if (idx % Math.max(6, Math.floor(windowCandles.length / 7)) !== 0) return null;
               const x = getX(idx);
               const date = new Date(c.time);
               const label = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -508,9 +435,9 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
                 <text
                   key={`time-${idx}`}
                   x={x}
-                  y={chartHeight + 20}
+                  y={chartHeight + 18}
                   fill="#64748B"
-                  fontSize="9"
+                  fontSize="9.5"
                   fontFamily="monospace"
                   textAnchor="middle"
                 >
@@ -519,14 +446,6 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               );
             })}
           </svg>
-        )}
-
-        {/* Empty range notification */}
-        {windowCandles.length > 0 && visibleSignals.length === 0 && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700/60 text-slate-400 text-xs flex items-center gap-2 backdrop-blur-sm shadow-md">
-            <Info className="w-3.5 h-3.5 text-amber-400" />
-            <span>No strategy signals in visible range. Modify conditions or zoom out.</span>
-          </div>
         )}
 
         {/* Hover Tooltip: Detailed Rule Evaluation Checklist */}
@@ -559,7 +478,6 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               </span>
             </div>
 
-            {/* Condition checklist */}
             <div className="space-y-1.5 mb-2.5">
               <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
                 Trigger Verification Checklist ({hoveredSignal.passedCount}/{hoveredSignal.totalCount} conditions)
@@ -578,7 +496,6 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
               )}
             </div>
 
-            {/* Outcome if trade closed in backtest */}
             {hoveredSignal.exitTrade && (
               <div className="pt-2 border-t border-[#1E293B] flex items-center justify-between text-xs">
                 <span className="text-slate-400">Trade Result:</span>
@@ -599,20 +516,40 @@ export const StrategyChartPreview: React.FC<StrategyChartPreviewProps> = ({
         )}
       </div>
 
-      {/* Bottom Summary Bar */}
-      <div className="px-4 py-2 border-t border-[#1B2537] bg-[#0E1526] flex items-center justify-between text-xs text-slate-400">
-        <div className="flex items-center gap-3">
-          <span>
-            Strategy: <strong className="text-slate-200">{strategy.name}</strong>
-          </span>
-          <span className="text-slate-600">|</span>
-          <span>
-            Direction: <strong className="text-slate-200">{strategy.direction.replace(/_/g, ' ')}</strong>
-          </span>
+      {/* Bottom Chart Controls Toolbar matching STRATEGY BUILDER.png */}
+      <div className="px-4 py-2 border-t border-[#1B2537] bg-[#0A101D] flex flex-wrap items-center justify-between text-xs text-slate-400 font-mono">
+        {/* Left time range options */}
+        <div className="flex items-center gap-2">
+          {['1D', '5D', '1M', '3M', '6M', '1Y', 'All'].map(t => (
+            <button
+              key={t}
+              onClick={() => {
+                if (t === '1D') setVisibleBars(30);
+                else if (t === '5D') setVisibleBars(60);
+                else if (t === '1M') setVisibleBars(120);
+                else setVisibleBars(180);
+              }}
+              className={`px-1.5 py-0.5 rounded text-[11px] hover:text-slate-100 transition-colors ${
+                (t === '5D' && visibleBars === 60) || (t === '1D' && visibleBars === 30)
+                  ? 'text-cyan-400 font-bold bg-slate-800/80'
+                  : 'text-slate-400'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="text-slate-500">Execution:</span>
-          <span className="text-slate-300 font-mono">Bar Close Confirmed → Next Bar Open</span>
+
+        {/* Middle UTC Time */}
+        <div className="text-[11px] text-slate-400">
+          {new Date().toISOString().slice(11, 19)} (UTC)
+        </div>
+
+        {/* Right % log auto */}
+        <div className="flex items-center gap-2.5 text-[11px] text-slate-400">
+          <span className="hover:text-slate-200 cursor-pointer">%</span>
+          <span className="hover:text-slate-200 cursor-pointer">log</span>
+          <span className="text-cyan-400 font-bold cursor-pointer">auto</span>
         </div>
       </div>
     </div>

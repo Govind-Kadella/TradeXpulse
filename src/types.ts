@@ -315,7 +315,7 @@ export interface ChartViewport {
   anchorPrice?: number;
 }
 
-export type ActiveView = 'dashboard' | 'marketMap' | 'aiSignals' | 'execution' | 'settings' | 'strategyBuilder' | 'backtest';
+export type ActiveView = 'dashboard' | 'marketMap' | 'aiSignals' | 'execution' | 'settings' | 'strategyBuilder' | 'backtest' | 'newsCalendar' | 'economicData';
 
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP';
 export type OrderSide = 'BUY' | 'SELL';
@@ -1083,6 +1083,232 @@ export interface StrategyTemplateItem {
   targetTimeframe: Timeframe;
   strategy: StrategyDefinition;
 }
+
+// ============================================================================
+// NEWS & ECONOMIC CALENDAR TYPES
+// ============================================================================
+
+export type NewsCategory = 
+  | 'FOREX' 
+  | 'COMMODITIES' 
+  | 'ECONOMY' 
+  | 'MARKETS' 
+  | 'CENTRAL BANKS' 
+  | 'CRYPTO' 
+  | 'INDICES' 
+  | 'STOCKS';
+
+export type ImpactLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+export type SentimentType = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+
+export interface MarketNewsArticle {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  sourceLogo?: string;
+  url?: string;
+  publishedAt: string; // ISO string or relative e.g. "12m ago"
+  timestamp: number; // Unix timestamp in ms
+  category: NewsCategory;
+  currencies: string[]; // e.g. ['USD', 'EUR']
+  instruments: MarketSymbol[]; // e.g. ['XAUUSD', 'EURUSD']
+  impact: ImpactLevel;
+  sentiment: SentimentType;
+  imageUrl?: string;
+  content?: string;
+  readTimeMinutes?: number;
+}
+
+export type EventCategory = 
+  | 'CENTRAL_BANK' 
+  | 'INFLATION' 
+  | 'EMPLOYMENT' 
+  | 'GDP' 
+  | 'TRADE' 
+  | 'HOUSING' 
+  | 'CONSUMER' 
+  | 'MANUFACTURING'
+  | 'SERVICES'
+  | 'OTHER';
+
+export interface EconomicEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  timeUtc: string; // HH:mm format, canonical UTC
+  timestamp: number; // Exact Unix timestamp in ms for live countdown
+  currency: string; // 'USD' | 'EUR' | 'GBP' | 'JPY' | 'AUD' | 'CAD' | 'CHF' | 'NZD' | 'CNY'
+  country: string;
+  flag: string;
+  impact: ImpactLevel;
+  event: string;
+  actual: string | null; // e.g. "680K" or null (rendered as '--')
+  forecast: string | null;
+  previous: string | null;
+  surprise?: number | null; // actual minus forecast where applicable
+  unit?: string;
+  category: EventCategory;
+  description: string;
+  historicalImportance?: string;
+  expectedVolatility: 'HIGH' | 'MODERATE' | 'LOW';
+  marketImpactScore: number; // 0-100 deterministic classification
+  affectedCurrencies: string[];
+  affectedInstruments: MarketSymbol[];
+  alertType?: 'BELL' | 'DOCUMENT';
+  historicalData?: HistoricalEconomicPoint[];
+  aiAnalysis?: {
+    fact: string;
+    interpretation: string;
+    bullishScenario: string;
+    bearishScenario: string;
+    neutralScenario: string;
+  };
+}
+
+export interface EventAlert {
+  id: string;
+  eventId: string;
+  eventName: string;
+  currency: string;
+  impact: ImpactLevel;
+  eventTime: number; // Unix ms
+  leadTimeMinutes: number; // 5, 15, 30, 60, 1440
+  createdAt: number;
+  soundEnabled: boolean;
+  notified?: boolean;
+}
+
+export type NewsSortOption = 'NEWEST' | 'HIGHEST_IMPACT' | 'MOST_RELEVANT';
+
+export interface NewsFilterOptions {
+  category?: NewsCategory | 'ALL';
+  currencies?: string[]; // Selected currencies
+  impact?: ImpactLevel | 'ALL';
+  sentiment?: SentimentType | 'ALL';
+  searchQuery?: string;
+  sort?: NewsSortOption;
+}
+
+export interface CalendarFilterOptions {
+  currencies?: string[]; // Empty means all
+  impact?: ImpactLevel | 'ALL';
+  eventType?: EventCategory | 'ALL';
+  searchQuery?: string;
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD
+}
+
+export interface CurrencyItem {
+  code: string;
+  name: string;
+  flag: string;
+  country: string;
+}
+
+export interface AiMarketInsight {
+  currency: string;
+  symbol?: MarketSymbol;
+  bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  confidence: number; // 0-100
+  catalystSummary: string;
+  keyDrivers: string[];
+  upcomingRisks: string[];
+  affectedInstruments: MarketSymbol[];
+}
+
+export interface HistoricalEconomicPoint {
+  date: string; // e.g. "Jan", "Feb" or "2026-01"
+  value: number | null;
+  forecast?: number | null;
+  previous?: number | null;
+}
+
+export interface CentralBankInfo {
+  id: string;
+  name: string;
+  shortName: string;
+  country: string;
+  currency: string;
+  flag: string;
+  currentRate: number;
+  previousRate: number;
+  lastDecision: string;
+  lastDecisionDate: string;
+  nextMeeting: string;
+  policyStance: 'HAWKISH' | 'DOVISH' | 'NEUTRAL' | 'DATA_DEPENDENT';
+  rateHistory: { date: string; rate: number }[];
+  commentary: string;
+  aiAnalysis: {
+    fact: string;
+    interpretation: string;
+    bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  };
+}
+
+export interface KeyIndicator {
+  id: string;
+  name: string;
+  category: 'INFLATION' | 'EMPLOYMENT' | 'GROWTH' | 'CONSUMER' | 'BUSINESS' | 'MANUFACTURING' | 'HOUSING' | 'TRADE';
+  country: string;
+  currency: string;
+  flag: string;
+  latest: string;
+  previous: string;
+  forecast: string;
+  releaseDate: string;
+  impact: ImpactLevel;
+  trend: 'UP' | 'DOWN' | 'STABLE';
+}
+
+export interface InterestRateItem {
+  id: string;
+  country: string;
+  flag: string;
+  currency: string;
+  centralBank: string;
+  currentRate: number;
+  previousRate: number;
+  lastChange: string;
+  nextDecision: string;
+  direction: 'HIKE' | 'CUT' | 'HOLD';
+}
+
+export interface GdpInflationItem {
+  id: string;
+  country: string;
+  flag: string;
+  currency: string;
+  gdpGrowthYoY: number;
+  gdpGrowthQoQ: number;
+  cpiYoY: number;
+  coreCpiYoY: number;
+  pceYoY: number;
+  corePceYoY: number;
+  ppiYoY: number;
+  lastUpdated: string;
+}
+
+export interface MarketHolidayItem {
+  id: string;
+  date: string;
+  country: string;
+  flag: string;
+  market: string;
+  holiday: string;
+  affectedInstruments: string;
+  status: 'CLOSED' | 'EARLY_CLOSE' | 'BANKS_CLOSED_FX_OPEN' | 'NORMAL';
+}
+
+export interface NewsSettingsConfig {
+  provider: 'REFINITIV_LIVE' | 'FINNHUB' | 'ALPHA_VANTAGE' | 'SIMULATED';
+  defaultTimezone: 'UTC' | 'EST' | 'GMT' | 'CET' | 'JST';
+  autoRefreshIntervalSeconds: number; // 0 = manual, 30, 60, 300
+  defaultAlertLeadMinutes: number; // 15
+  soundAlertsEnabled: boolean;
+  highImpactAlertsOnly: boolean;
+  activeCurrencies: string[];
+}
+
 
 
 

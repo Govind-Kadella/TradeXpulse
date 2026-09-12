@@ -9,8 +9,8 @@ const STORAGE_KEY = 'tradexpulse_saved_strategies';
 
 export const DEFAULT_STRATEGY: StrategyDefinition = {
   id: 'strat_xauusd_trend_default',
-  name: 'XAUUSD Institutional Trend Rider',
-  description: 'Multi-indicator trend following setup combining EMA 50/200 cross, RSI momentum confirmation, and Bullish Break of Structure.',
+  name: 'XAUUSD Trend Rider',
+  description: 'Trend following strategy using EMA, RSI and price action confirmation.',
   symbol: 'XAUUSD',
   timeframe: 'M15',
   direction: 'LONG_ONLY',
@@ -25,7 +25,7 @@ export const DEFAULT_STRATEGY: StrategyDefinition = {
       targetType: 'INDICATOR',
       targetIndicator: 'EMA',
       targetIndicatorPeriod: 200,
-      customLabel: 'EMA 50 > EMA 200'
+      customLabel: 'EMA (50) > EMA (200)'
     },
     {
       id: 'cond_rsi_50',
@@ -35,19 +35,35 @@ export const DEFAULT_STRATEGY: StrategyDefinition = {
       operator: '>',
       targetType: 'VALUE',
       targetValue: 50,
-      customLabel: 'RSI(14) > 50'
+      customLabel: 'RSI (14) > 50'
     },
     {
-      id: 'cond_bullish_bos',
-      sourceType: 'MARKET_STRUCTURE',
-      structureKey: 'BOS',
-      structureDirection: 'BULLISH',
+      id: 'cond_bullish_engulfing',
+      sourceType: 'PRICE_ACTION',
+      patternKey: 'BULLISH_ENGULFING',
       operator: '=',
-      targetType: 'STRUCTURE',
-      customLabel: 'Bullish BOS'
+      targetType: 'PATTERN',
+      customLabel: 'Price Action Bullish Engulfing'
+    },
+    {
+      id: 'cond_vol_average',
+      sourceType: 'INDICATOR',
+      indicator: 'VOLUME',
+      operator: '>',
+      targetType: 'INDICATOR',
+      targetIndicator: 'VOLUME',
+      targetIndicatorSubKey: 'AVERAGE',
+      targetValue: 1.5,
+      customLabel: 'Volume > 1.5x Average'
     }
   ],
   exitConditions: [
+    {
+      id: 'exit_tp',
+      type: 'TAKE_PROFIT',
+      mode: 'R_MULTIPLE',
+      value: 2.0
+    },
     {
       id: 'exit_sl',
       type: 'STOP_LOSS',
@@ -55,16 +71,20 @@ export const DEFAULT_STRATEGY: StrategyDefinition = {
       value: 1.0
     },
     {
-      id: 'exit_tp',
-      type: 'TAKE_PROFIT',
+      id: 'exit_rsi_or',
+      type: 'INDICATOR_EXIT',
       mode: 'R_MULTIPLE',
-      value: 2.5
-    },
-    {
-      id: 'exit_trailing',
-      type: 'TRAILING_STOP',
-      mode: 'R_MULTIPLE',
-      value: 1.0
+      value: 0,
+      condition: {
+        id: 'cond_exit_rsi',
+        sourceType: 'INDICATOR',
+        indicator: 'RSI',
+        indicatorPeriod: 14,
+        operator: '<',
+        targetType: 'VALUE',
+        targetValue: 30,
+        customLabel: 'OR RSI (14) < 30'
+      }
     }
   ],
   filters: [
@@ -83,8 +103,14 @@ export const DEFAULT_STRATEGY: StrategyDefinition = {
     {
       id: 'filt_min_atr',
       type: 'MIN_ATR',
-      minAtrValue: 1.2,
-      enabled: false
+      minAtrValue: 0.5,
+      enabled: true
+    },
+    {
+      id: 'filt_max_trades',
+      type: 'MAX_OPEN_TRADES',
+      maxOpenTrades: 1,
+      enabled: true
     }
   ],
   advancedOptions: {
@@ -105,7 +131,7 @@ export const DEFAULT_STRATEGY: StrategyDefinition = {
     maxDailyLossPercent: 5.0,
     maxOpenTrades: 1,
     defaultStopLossR: 1.0,
-    defaultTakeProfitR: 2.5
+    defaultTakeProfitR: 2.0
   },
   createdAt: Date.now() - 86400000 * 5,
   updatedAt: Date.now() - 3600000,
@@ -611,10 +637,10 @@ export class StrategyStorageService {
   /**
    * Gets all templates (built-in + user-saved custom templates)
    */
-  public static getAllTemplates(): StrategyTemplate[] {
+  public static getAllTemplates(): StrategyTemplateItem[] {
     try {
       const customRaw = localStorage.getItem('tradexpulse_custom_templates');
-      const custom: StrategyTemplate[] = customRaw ? JSON.parse(customRaw) : [];
+      const custom: StrategyTemplateItem[] = customRaw ? JSON.parse(customRaw) : [];
       return [...custom, ...STRATEGY_TEMPLATES];
     } catch {
       return STRATEGY_TEMPLATES;
@@ -626,12 +652,12 @@ export class StrategyStorageService {
    */
   public static saveAsTemplate(
     strategy: StrategyDefinition,
-    category: 'Trend Following' | 'Breakout' | 'Reversal' | 'Scalping' | 'Smart Money Concepts' | 'Price Action' = 'Price Action',
+    category: 'Trend Following' | 'Mean Reversion' | 'Breakout' | 'Momentum' | 'Price Action' | 'Market Structure' | 'AI-Assisted' = 'Price Action',
     description?: string
-  ): StrategyTemplate {
-    const template: StrategyTemplate = {
+  ): StrategyTemplateItem {
+    const template: StrategyTemplateItem = {
       id: `tpl_${Date.now()}`,
-      name: strategy.name,
+      title: strategy.name,
       category,
       description: description || strategy.description || `Custom template saved from verified strategy ${strategy.name}.`,
       tags: ['Custom', 'Verified', strategy.direction],

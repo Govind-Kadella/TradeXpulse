@@ -37,10 +37,10 @@ export class BacktestEngine {
       defaultSpread: 0.2
     };
 
-    // Filter candles by user-specified date range if provided
-    let evalCandles = candles;
+    // Filter candles by user-specified date range if provided, ensuring all candles are valid
+    let evalCandles = (candles || []).filter(c => c && typeof c.high === 'number' && typeof c.low === 'number' && typeof c.close === 'number' && typeof c.open === 'number');
     if (config.startDate || config.endDate) {
-      evalCandles = candles.filter(c => {
+      evalCandles = evalCandles.filter(c => {
         if (config.startDate && c.time < config.startDate) return false;
         if (config.endDate && c.time > config.endDate) return false;
         return true;
@@ -112,6 +112,7 @@ export class BacktestEngine {
     for (let i = 15; i < evalCandles.length; i++) {
       const currCandle = evalCandles[i];
       const prevCandle = evalCandles[i - 1];
+      if (!currCandle || !prevCandle) continue;
 
       // ======================================================================
       // A. UPDATE ACTIVE TRADES (Check Intrabar Exits, Trailing Stops, BE)
@@ -415,7 +416,10 @@ export class BacktestEngine {
         value: 2.0
       };
 
-      const atr14 = StrategyEngine.getIndicatorValue(series, evalCandles, evalBarIdx, 'ATR', 14) || (evalCandle.high - evalCandle.low);
+      const fallbackRange = (evalCandle && typeof evalCandle.high === 'number' && typeof evalCandle.low === 'number')
+        ? (evalCandle.high - evalCandle.low)
+        : (meta.tickSize * 20);
+      const atr14 = StrategyEngine.getIndicatorValue(series, evalCandles, evalBarIdx, 'ATR', 14) || fallbackRange;
       let slDistancePoints = 0;
 
       if (slExit.mode === 'ATR_MULTIPLE') {

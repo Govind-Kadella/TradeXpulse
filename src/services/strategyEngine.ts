@@ -32,11 +32,12 @@ export class StrategyEngine {
    * strictly up to each bar to avoid redundant recomputations.
    */
   public static calculateIndicators(candles: Candle[]): IndicatorSeries {
-    const len = candles.length;
-    const closes = candles.map(c => c.close);
-    const highs = candles.map(c => c.high);
-    const lows = candles.map(c => c.low);
-    const volumes = candles.map(c => c.volume);
+    const validCandles = (candles || []).filter(c => c && typeof c.high === 'number' && typeof c.low === 'number' && typeof c.close === 'number');
+    const len = validCandles.length;
+    const closes = validCandles.map(c => c.close);
+    const highs = validCandles.map(c => c.high);
+    const lows = validCandles.map(c => c.low);
+    const volumes = validCandles.map(c => c.volume);
 
     // SMA caches
     const smaCache = new Map<number, number[]>();
@@ -294,6 +295,7 @@ export class StrategyEngine {
   ): number {
     if (barIdx < 0 || barIdx >= candles.length) return 0;
     const c = candles[barIdx];
+    if (!c) return 0;
 
     switch (indicator) {
       case 'SMA': {
@@ -385,13 +387,14 @@ export class StrategyEngine {
   public static getPriceValue(candles: Candle[], barIdx: number, priceKey: string = 'CLOSE'): number {
     if (barIdx < 0 || barIdx >= candles.length) return 0;
     const c = candles[barIdx];
+    if (!c) return 0;
     switch (priceKey) {
       case 'OPEN': return c.open;
       case 'HIGH': return c.high;
       case 'LOW': return c.low;
       case 'CLOSE': return c.close;
       case 'PREVIOUS_CLOSE':
-        return barIdx > 0 ? candles[barIdx - 1].close : c.open;
+        return barIdx > 0 && candles[barIdx - 1] ? candles[barIdx - 1].close : c.open;
       case 'HIGH_LOW_RANGE':
         return c.high - c.low;
       default:
@@ -411,8 +414,9 @@ export class StrategyEngine {
     timeframe: Timeframe = 'M15',
     cachedPatterns?: Map<number, Set<string>>
   ): { isMet: boolean; reason: string } {
-    if (barIdx < 1) return { isMet: false, reason: 'Insufficient history' };
+    if (barIdx < 1 || barIdx >= candles.length) return { isMet: false, reason: 'Insufficient history' };
     const currCandle = candles[barIdx];
+    if (!currCandle) return { isMet: false, reason: 'Invalid candle' };
 
     // ========================================================================
     // 1. PRICE ACTION CONDITIONS (Candle Patterns)
@@ -457,26 +461,36 @@ export class StrategyEngine {
         let swingLevel = 0;
 
         // Scan backwards for the most recent confirmed swing pivot
-        // Swing at i requires i + window <= barIdx
-        for (let i = barIdx - window; i >= Math.max(0, barIdx - 50); i--) {
+        // Swing at i requires i + window <= barIdx AND i - window >= 0
+        const minI = Math.max(window, barIdx - 50);
+        const maxI = barIdx - window;
+        for (let i = maxI; i >= minI; i--) {
           const c = candles[i];
+          if (!c) continue;
           let isPivot = true;
           for (let j = 1; j <= window; j++) {
+            const leftC = candles[i - j];
+            const rightC = candles[i + j];
+            if (!leftC || !rightC) {
+              isPivot = false;
+              break;
+            }
             if (isBullish) {
-              if (candles[i - j].high >= c.high || candles[i + j].high > c.high) isPivot = false;
+              if (leftC.high >= c.high || rightC.high > c.high) isPivot = false;
             } else {
-              if (candles[i - j].low <= c.low || candles[i + j].low < c.low) isPivot = false;
+              if (leftC.low <= c.low || rightC.low < c.low) isPivot = false;
             }
           }
           if (isPivot) {
             swingLevel = isBullish ? c.high : c.low;
             // Check if barIdx closed beyond this confirmed swing level while barIdx - 1 was within
+            const prevCandle = barIdx > 0 ? candles[barIdx - 1] : null;
             if (isBullish) {
-              if (currCandle.close > swingLevel && candles[barIdx - 1].close <= swingLevel) {
+              if (currCandle.close > swingLevel && (!prevCandle || prevCandle.close <= swingLevel)) {
                 eventFound = true;
               }
             } else {
-              if (currCandle.close < swingLevel && candles[barIdx - 1].close >= swingLevel) {
+              if (currCandle.close < swingLevel && (!prevCandle || prevCandle.close >= swingLevel)) {
                 eventFound = true;
               }
             }
@@ -493,7 +507,7 @@ export class StrategyEngine {
 
       if (structKey === 'FVG') {
         // FVG confirmed at barIdx using closed bars: barIdx-2, barIdx-1, barIdx
-        if (barIdx < 2) return { isMet: false, reason: 'Insufficient bars for FVG' };
+        if (barIdx < 2 || !candles[barIdx] || !candles[barIdx - 2]) return { isMet: false, reason: 'Insufficient bars for FVG' };
         let fvgPresent = false;
         if (isBullish) {
           // Bullish FVG: Low of candle barIdx > High of candle barIdx - 2
@@ -512,14 +526,23 @@ export class StrategyEngine {
       if (structKey === 'LIQUIDITY_SWEEP') {
         // Price pierces confirmed swing level intraday but closes back inside
         let sweepFound = false;
-        for (let i = barIdx - window; i >= Math.max(0, barIdx - 35); i--) {
+        const minI = Math.max(window, barIdx - 35);
+        const maxI = barIdx - window;
+        for (let i = maxI; i >= minI; i--) {
           const c = candles[i];
+          if (!c) continue;
           let isPivot = true;
           for (let j = 1; j <= window; j++) {
+            const leftC = candles[i - j];
+            const rightC = candles[i + j];
+            if (!leftC || !rightC) {
+              isPivot = false;
+              break;
+            }
             if (isBullish) {
-              if (candles[i - j].low <= c.low || candles[i + j].low < c.low) isPivot = false;
+              if (leftC.low <= c.low || rightC.low < c.low) isPivot = false;
             } else {
-              if (candles[i - j].high >= c.high || candles[i + j].high > c.high) isPivot = false;
+              if (leftC.high >= c.high || rightC.high > c.high) isPivot = false;
             }
           }
           if (isPivot) {

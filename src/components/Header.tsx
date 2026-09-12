@@ -15,7 +15,9 @@ import {
   Check,
   Zap,
   History,
-  Cpu
+  Cpu,
+  Calendar,
+  Database
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -101,6 +103,30 @@ export const Header: React.FC = () => {
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
             AI Signals
+          </button>
+          <button
+            id="nav-newscalendar-tab"
+            onClick={() => setView('newsCalendar')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+              activeView === 'newsCalendar'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+            News & Calendar
+          </button>
+          <button
+            id="nav-economicdata-tab"
+            onClick={() => setView('economicData')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+              activeView === 'economicData'
+                ? 'bg-blue-600/20 border border-blue-500/50 text-cyan-300 shadow-[0_0_10px_rgba(56,189,248,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-[#121A2C]'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-blue-400" />
+            Economic Data
           </button>
           <button
             id="nav-strategybuilder-tab"

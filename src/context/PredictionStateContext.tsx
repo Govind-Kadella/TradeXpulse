@@ -63,6 +63,7 @@ interface PredictionStateContextType {
   setTimeframe: (tf: Timeframe) => void;
   activeView: ActiveView;
   setView: (view: ActiveView) => void;
+  setActiveView: (view: ActiveView) => void;
   
   // Shared Unified Prediction State
   prediction: Prediction;
@@ -1197,8 +1198,8 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
 
       // Get historical candles for strat.symbol and strat.timeframe
       let simCandles = candles;
-      if (strat.symbol !== activeSymbol || strat.timeframe !== activeTimeframe) {
-        simCandles = MarketDataService.getInstance().getCandles(strat.symbol, strat.timeframe);
+      if (!simCandles || simCandles.length < 15 || strat.symbol !== activeSymbol || strat.timeframe !== activeTimeframe) {
+        simCandles = MarketDataService.getHistoricalCandles(strat.symbol, strat.timeframe, 250);
       }
 
       if (!simCandles || simCandles.length < 15) {
@@ -1236,6 +1237,7 @@ export const PredictionStateProvider: React.FC<{ children: React.ReactNode }> = 
         setTimeframe: handleTimeframeChange,
         activeView,
         setView: setActiveView,
+        setActiveView,
         prediction,
         analyticalLevels: prediction,
         aiReport: prediction,

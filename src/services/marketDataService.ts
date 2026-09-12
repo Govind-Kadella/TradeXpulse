@@ -336,6 +336,28 @@ export async function fetchHistoricalCandles(
  */
 export class MarketDataService {
   private static localCandleCache: Map<string, Candle[]> = new Map();
+  private static instance: MarketDataService | null = null;
+
+  public static getInstance(): MarketDataService {
+    if (!MarketDataService.instance) {
+      MarketDataService.instance = new MarketDataService();
+    }
+    return MarketDataService.instance;
+  }
+
+  /**
+   * Instance helper for getHistoricalCandles
+   */
+  public getCandles(symbolInput: MarketSymbol | string, timeframe: Timeframe, count: number = 250): Candle[] {
+    return MarketDataService.getHistoricalCandles(symbolInput, timeframe, count);
+  }
+
+  /**
+   * Instance helper for fetchHistoricalCandles
+   */
+  public async fetchCandles(symbolInput: MarketSymbol | string, timeframe: Timeframe, count: number = 250): Promise<Candle[]> {
+    return MarketDataService.fetchHistoricalCandles(symbolInput, timeframe, count);
+  }
 
   /**
    * Fetches real historical candles via server-side proxy or direct API
